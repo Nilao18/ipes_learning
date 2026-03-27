@@ -1,0 +1,7 @@
+quentin      362  0.0  0.0   6588  5600 pts/0    Ss   19:08   0:00 -bash
+quentin      409  0.0  0.0  20320 10752 ?        Ss   19:08   0:00 /usr/lib/systemd/systemd --user
+quentin      410  0.0  0.0  21156  3520 ?        S    19:08   0:00 (sd-pam)
+quentin      468  0.0  0.0   6072  4928 pts/1    S+   19:08   0:00 -bash
+quentin     1669  0.0  0.0   9292  4704 ?        Ss   19:52   0:00 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only
+quentin     1760  0.0  0.0   8280  4032 pts/0    R+   20:04   0:00 ps aux
+quentin     1761  0.0  0.0   4088  1792 pts/0    S+   20:04   0:00 grep --color=auto quentin
