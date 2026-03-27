@@ -1,2 +1,3 @@
 Phase 1 - linux embarqué - application IA
 Séance 1 - navigation et fichiers
+Séance 2 - réseau et Git
