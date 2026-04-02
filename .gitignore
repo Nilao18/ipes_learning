@@ -1,0 +1,6 @@
+phase1/cmake_test/build/
+*.o
+*.out
+phase1/hello
+phase1/cmake_test/build/hello
+
