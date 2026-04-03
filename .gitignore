@@ -1,6 +1,14 @@
+# Exclusion du dossier build CMake
 phase1/cmake_test/build/
 *.o
 *.out
 phase1/hello
 phase1/cmake_test/build/hello
+
+#Environnement virtuel Python
+venv/
+
+# Fichiers Python compilés
+__Pycache__/
+*.pyc
 
