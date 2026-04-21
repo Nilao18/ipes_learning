@@ -49,20 +49,37 @@ def draw_hud(frame, side, fps, lat):
     cv2.circle(frame, (cx, cy), 30, color, 1)
     return frame
 
+def detect_motion_zone(prev_gray, gray, seuil=10):
+    small_prev = cv2.resize(prev_gray, (160, 90))
+    small_gray = cv2.resize(gray, (160, 90))
+    diff = cv2.absdiff(small_prev, small_gray)
+    _, thresh = cv2.threshold(diff, seuil, 255, cv2.THRESH_BINARY)
+    w = thresh.shape[1]
+    motion_left  = np.sum(thresh[:, :w//2]) / 255
+    motion_right = np.sum(thresh[:, w//2:]) / 255
+    return motion_left, motion_right
+
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
-
 
 cam_left  = CameraThread(CAM_LEFT)
 time.sleep(0.5)
 cam_right = CameraThread(CAM_RIGHT)
-time.sleep(0.5)
+time.sleep(1)
 
 t0 = time.time()
 count = 0
 fps = 0
 lat_display = 0
 lat_update = time.time()
+
+prev_gray_l = None
+prev_gray_r = None
+
+alert_l_time = 0
+alert_r_time = 0
+ALERT_DURATION = 1.5
+ZONE_SEUIL = 600
 
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
@@ -87,8 +104,39 @@ while True:
         lat_display = (time.time() - cam_left.timestamp) * 1000
         lat_update = time.time()
 
+    # Flux optique en alternance
+    gray_l = cv2.cvtColor(fl, cv2.COLOR_BGR2GRAY)
+    gray_r = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+    now_t = time.time()
+
+    if count % 2 == 0:
+        if prev_gray_l is not None:
+            ml, mr = detect_motion_zone(prev_gray_l, gray_l)
+            if ml > ZONE_SEUIL:
+                alert_l_time = now_t
+            if mr > ZONE_SEUIL:
+                alert_r_time = now_t
+        prev_gray_l = gray_l.copy()
+    else:
+        if prev_gray_r is not None:
+            ml, mr = detect_motion_zone(prev_gray_r, gray_r)
+            if ml > ZONE_SEUIL:
+                alert_l_time = now_t
+            if mr > ZONE_SEUIL:
+                alert_r_time = now_t
+        prev_gray_r = gray_r.copy()
+
     fl = draw_hud(fl, "L", fps, lat_display)
     fr = draw_hud(fr, "R", fps, lat_display)
+
+    # Flèches d'alerte
+    h, w = fl.shape[:2]
+    if now_t - alert_l_time < ALERT_DURATION:
+        cv2.arrowedLine(fl, (200, h//2), (50, h//2), (0,0,255), 8, tipLength=0.4)
+        cv2.arrowedLine(fr, (200, h//2), (50, h//2), (0,0,255), 8, tipLength=0.4)
+    if now_t - alert_r_time < ALERT_DURATION:
+        cv2.arrowedLine(fl, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
+        cv2.arrowedLine(fr, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
 
     composite = np.vstack([fl, fr])
 
