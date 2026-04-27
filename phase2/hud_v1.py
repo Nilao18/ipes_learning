@@ -136,6 +136,57 @@ def draw_horizon(frame, roll, pitch):
 
     return frame
 
+def draw_compass(frame, yaw):
+    h, w = frame.shape[:2]
+    cx = w // 2
+    compass_y = 30
+    compass_w = w - 100  # presque toute la largeur
+    deg_per_px = compass_w / 60.0  # 60° visibles au total
+
+    color_small = (0, 200, 0)
+    color_large = (255, 255, 255)
+    color_cardinal = (0, 200, 255)
+
+    cardinals = {0: 'N', 45: 'NE', 90: 'E', 135: 'SE',
+                 180: 'S', 225: 'SO', 270: 'O', 315: 'NO'}
+
+    # Ligne de base
+    cv2.line(frame, (cx - compass_w//2, compass_y),
+             (cx + compass_w//2, compass_y), color_small, 1)
+
+    # Dessiner 360° de graduations centrées sur yaw
+    for deg in range(0, 360):
+        # Distance angulaire par rapport au cap actuel
+        diff = (deg - yaw + 180) % 360 - 180
+        if abs(diff) > 30:  # 30° de chaque côté = 60° visibles
+            continue
+
+        px = cx + int(diff * deg_per_px)
+
+        if deg % 45 == 0:
+            # Grand trait + cardinal
+            cv2.line(frame, (px, compass_y - 5), (px, compass_y + 25), color_cardinal, 2)
+            label = cardinals.get(deg, '')
+            cv2.putText(frame, label, (px - 12, compass_y + 45),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_cardinal, 2)
+        elif deg % 10 == 0:
+            # Trait moyen + chiffre
+            cv2.line(frame, (px, compass_y - 3), (px, compass_y + 18), color_large, 1)
+            cv2.putText(frame, str(deg), (px - 10, compass_y + 38),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_large, 1)
+        elif deg % 5 == 0:
+            # Trait moyen sans chiffre
+            cv2.line(frame, (px, compass_y), (px, compass_y + 12), color_small, 1)
+        else:
+            # Petit trait
+            cv2.line(frame, (px, compass_y), (px, compass_y + 6), color_small, 1)
+
+    # Marqueur cap fixe (triangle)
+    pts = np.array([[cx, compass_y - 10], [cx - 6, compass_y - 2], [cx + 6, compass_y - 2]])
+    cv2.fillPoly(frame, [pts], color_large)
+
+    return frame
+
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
 
@@ -210,7 +261,11 @@ while True:
 
     fl = draw_horizon(fl, imu.roll, imu.pitch)
     fr = draw_horizon(fr, imu.roll, imu.pitch)
-
+    
+    COMPASS_OFFSET = -45  # à ajuster selon ta calibration
+    fl = draw_compass(fl, (-imu.yaw + COMPASS_OFFSET) % 360)
+    fr = draw_compass(fr, (-imu.yaw + COMPASS_OFFSET) % 360)
+    
     # Flèches d'alerte
     h, w = fl.shape[:2]
     if now_t - alert_l_time < ALERT_DURATION:
