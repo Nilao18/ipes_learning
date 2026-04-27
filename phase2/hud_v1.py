@@ -3,6 +3,46 @@ import numpy as np
 import threading
 import time
 from datetime import datetime
+import math
+
+# Import adafruit après le reset
+from adafruit_extended_bus import ExtendedI2C as I2C
+from adafruit_bno08x.i2c import BNO08X_I2C
+from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
+
+class IMUThread:
+    def __init__(self):
+        print("Init IMU...")
+        i2c = I2C(7)
+        print("I2C OK")
+        self.bno = BNO08X_I2C(i2c, address=0x4A)
+        print("BNO08X OK")
+        self.bno.soft_reset()
+        time.sleep(1)
+        self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
+        print("Feature OK")
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+        print("Pitch/Yaw/Roll OK")
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("Thread Start OK")
+
+    def update(self):
+        while self.running:
+            quat = self.bno.quaternion
+            if quat:
+                qi, qj, qk, real = quat
+                self.roll  = math.degrees(math.atan2(2*(real*qi + qj*qk), 1 - 2*(qi*qi + qj*qj)))
+                self.pitch = math.degrees(math.asin(max(-1, min(1, 2*(real*qj - qk*qi)))))
+                self.yaw   = math.degrees(math.atan2(2*(real*qk + qi*qj), 1 - 2*(qj*qj + qk*qk)))
+            time.sleep(0.02)  # 50Hz
+
+    def stop(self):
+        self.running = False
 
 class CameraThread:
     def __init__(self, device):
@@ -29,7 +69,7 @@ class CameraThread:
         self.running = False
         self.cap.release()
 
-def draw_hud(frame, side, fps, lat):
+def draw_hud(frame, side, fps, lat, roll=0, pitch=0, yaw=0):
     h, w = frame.shape[:2]
     now = datetime.now()
     color = (0, 255, 0)
@@ -40,6 +80,12 @@ def draw_hud(frame, side, fps, lat):
     cv2.putText(frame, f"FPS:{fps:.1f}", (10, 90),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
     cv2.putText(frame, f"LAT:{lat:.0f}ms", (10, 120),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+    cv2.putText(frame, f"R:{roll:6.1f}", (10, 150),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+    cv2.putText(frame, f"P:{pitch:6.1f}", (10, 180),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+    cv2.putText(frame, f"Y:{yaw:6.1f}", (10, 210),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
     cv2.putText(frame, side, (w-80, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
@@ -59,12 +105,45 @@ def detect_motion_zone(prev_gray, gray, seuil=10):
     motion_right = np.sum(thresh[:, w//2:]) / 255
     return motion_left, motion_right
 
+def draw_horizon(frame, roll, pitch):
+    h, w = frame.shape[:2]
+    cx, cy = w // 2, h // 2
+    color = (0, 255, 0)
+
+    # Décalage vertical selon le pitch (1 pixel par degré)
+    pitch_offset = int(pitch * 4)
+
+    # Longueur de la ligne d'horizon
+    length = w // 2
+
+    # Calcul des extrémités selon le roll
+    angle_rad = math.radians(roll)
+    dx = int(length * math.cos(angle_rad))
+    dy = int(length * math.sin(angle_rad))
+
+    # Points de la ligne d'horizon
+    x1 = cx - dx
+    y1 = cy + pitch_offset + dy
+    x2 = cx + dx
+    y2 = cy + pitch_offset - dy
+
+    cv2.line(frame, (x1, y1), (x2, y2), color, 2)
+
+    # Marqueur centre fixe (repère casque)
+    cv2.line(frame, (cx - 60, cy), (cx - 20, cy), (255, 255, 255), 2)
+    cv2.line(frame, (cx + 20, cy), (cx + 60, cy), (255, 255, 255), 2)
+    cv2.circle(frame, (cx, cy), 5, (255, 255, 255), -1)
+
+    return frame
+
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
 
 cam_left  = CameraThread(CAM_LEFT)
 time.sleep(0.5)
 cam_right = CameraThread(CAM_RIGHT)
+time.sleep(1)
+imu = IMUThread()
 time.sleep(1)
 
 t0 = time.time()
@@ -126,8 +205,11 @@ while True:
                 alert_r_time = now_t
         prev_gray_r = gray_r.copy()
 
-    fl = draw_hud(fl, "L", fps, lat_display)
-    fr = draw_hud(fr, "R", fps, lat_display)
+    fl = draw_hud(fl, "L", fps, lat_display, imu.roll, imu.pitch, imu.yaw)
+    fr = draw_hud(fr, "R", fps, lat_display, imu.roll, imu.pitch, imu.yaw)
+
+    fl = draw_horizon(fl, imu.roll, imu.pitch)
+    fr = draw_horizon(fr, imu.roll, imu.pitch)
 
     # Flèches d'alerte
     h, w = fl.shape[:2]
