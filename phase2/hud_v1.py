@@ -213,7 +213,7 @@ ZONE_SEUIL = 600
 
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-cv2.resizeWindow("IPES HUD V1", 1440, 2880)
+cv2.resizeWindow("IPES HUD V1", 2880, 1440)
 
 while True:
     if cam_left.frame is None or cam_right.frame is None:
@@ -275,7 +275,7 @@ while True:
         cv2.arrowedLine(fl, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
         cv2.arrowedLine(fr, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
 
-    composite = np.vstack([fl, fr])
+    composite = np.hstack([fl, fr])
 
     count += 1
     fps = count / (time.time() - t0)
