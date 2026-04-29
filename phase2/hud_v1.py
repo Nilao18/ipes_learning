@@ -9,6 +9,7 @@ import math
 from adafruit_extended_bus import ExtendedI2C as I2C
 from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
+import adafruit_bme680
 
 class IMUThread:
     def __init__(self):
@@ -40,6 +41,36 @@ class IMUThread:
                 self.pitch = math.degrees(math.asin(max(-1, min(1, 2*(real*qj - qk*qi)))))
                 self.yaw   = math.degrees(math.atan2(2*(real*qk + qi*qj), 1 - 2*(qj*qj + qk*qk)))
             time.sleep(0.02)  # 50Hz
+
+    def stop(self):
+        self.running = False
+
+class BMEThread:
+    def __init__(self):
+        print("Init BME688...")
+        i2c = I2C(1)
+        self.bme = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77)
+        self.bme.sea_level_pressure = 1013.25
+        self.temperature = 0.0
+        self.humidity = 0.0
+        self.pressure = 0.0
+        self.gas = 0
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("BME688 OK")
+
+    def update(self):
+        while self.running:
+            try:
+                self.temperature = self.bme.temperature
+                self.humidity = self.bme.humidity
+                self.pressure = self.bme.pressure
+                self.gas = self.bme.gas
+            except Exception as e:
+                print(f"BME erreur: {e}")
+            time.sleep(2)
 
     def stop(self):
         self.running = False
@@ -187,6 +218,56 @@ def draw_compass(frame, yaw):
 
     return frame
 
+def draw_zone_h(frame, temperature, humidity, gas):
+    h, w = frame.shape[:2]
+    
+    # Zone H : bas droite 200x200px
+    x = w - 200
+    y = h - 200
+    
+    color = (0, 255, 0)      # vert nominal
+    color_dim = (0, 150, 0)
+    
+    # Fond opaque (règle LCD)
+    cv2.rectangle(frame, (x, y), (w-1, h-1), (15, 20, 26), -1)
+    cv2.rectangle(frame, (x, y), (w-1, h-1), color_dim, 1)
+    
+    # Label zone
+    cv2.putText(frame, "ENV", (x+8, y+20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+    
+    # Température
+    cv2.putText(frame, "TEMP", (x+8, y+42),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
+    cv2.putText(frame, f"{temperature:.1f}C", (x+8, y+68),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    
+    # Humidité
+    cv2.putText(frame, "HUM", (x+8, y+98),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1)
+    cv2.putText(frame, f"{humidity:.0f}%", (x+8, y+124),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    
+    # Gaz VOC — indicateur qualitatif
+    if gas > 50000:
+        gaz_label = "AIR OK"
+        gaz_color = (0, 255, 0)
+    elif gas > 20000:
+        gaz_label = "MOYEN"
+        gaz_color = (0, 200, 255)
+    else:
+        gaz_label = "ALERTE"
+        gaz_color = (0, 0, 255)
+
+    cv2.putText(frame, "GAZ", (x+8, y+150),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1)
+    cv2.putText(frame, gaz_label, (x+8, y+174),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaz_color, 2)
+    cv2.putText(frame, f"{gas//1000}k ohm", (x+8, y+198),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+    
+    return frame
+
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
 
@@ -195,6 +276,8 @@ time.sleep(0.5)
 cam_right = CameraThread(CAM_RIGHT)
 time.sleep(1)
 imu = IMUThread()
+time.sleep(1)
+bme = BMEThread()
 time.sleep(1)
 
 t0 = time.time()
@@ -261,6 +344,9 @@ while True:
 
     fl = draw_horizon(fl, imu.roll, imu.pitch)
     fr = draw_horizon(fr, imu.roll, imu.pitch)
+
+    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas)
+    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
     
     COMPASS_OFFSET = -45  # à ajuster selon ta calibration
     fl = draw_compass(fl, (-imu.yaw + COMPASS_OFFSET) % 360)
