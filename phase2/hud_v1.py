@@ -74,25 +74,25 @@ def draw_hud(frame, side, fps, lat, roll=0, pitch=0, yaw=0):
     now = datetime.now()
     color = (0, 255, 0)
     cv2.putText(frame, now.strftime("%H:%M:%S"), (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 3)
     cv2.putText(frame, now.strftime("%d/%m/%Y"), (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"FPS:{fps:.1f}", (10, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"LAT:{lat:.0f}ms", (10, 120),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"R:{roll:6.1f}", (10, 150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"P:{pitch:6.1f}", (10, 180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"Y:{yaw:6.1f}", (10, 210),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, side, (w-80, 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
     cx, cy = w//2, h//2
-    cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 1)
-    cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 1)
-    cv2.circle(frame, (cx, cy), 30, color, 1)
+    cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 2)
+    cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 2)
+    cv2.circle(frame, (cx, cy), 30, color, 2)
     return frame
 
 def detect_motion_zone(prev_gray, gray, seuil=10):
@@ -127,11 +127,11 @@ def draw_horizon(frame, roll, pitch):
     x2 = cx + dx
     y2 = cy + pitch_offset - dy
 
-    cv2.line(frame, (x1, y1), (x2, y2), color, 2)
+    cv2.line(frame, (x1, y1), (x2, y2), color, 3)
 
     # Marqueur centre fixe (repère casque)
-    cv2.line(frame, (cx - 60, cy), (cx - 20, cy), (255, 255, 255), 2)
-    cv2.line(frame, (cx + 20, cy), (cx + 60, cy), (255, 255, 255), 2)
+    cv2.line(frame, (cx - 60, cy), (cx - 20, cy), (255, 255, 255), 3)
+    cv2.line(frame, (cx + 20, cy), (cx + 60, cy), (255, 255, 255), 3)
     cv2.circle(frame, (cx, cy), 5, (255, 255, 255), -1)
 
     return frame
@@ -140,7 +140,7 @@ def draw_compass(frame, yaw):
     h, w = frame.shape[:2]
     cx = w // 2
     compass_y = 30
-    compass_w = w - 100  # presque toute la largeur
+    compass_w = w // 2 # moitié de la largeur au lieu de w - 100
     deg_per_px = compass_w / 60.0  # 60° visibles au total
 
     color_small = (0, 200, 0)
@@ -152,7 +152,7 @@ def draw_compass(frame, yaw):
 
     # Ligne de base
     cv2.line(frame, (cx - compass_w//2, compass_y),
-             (cx + compass_w//2, compass_y), color_small, 1)
+             (cx + compass_w//2, compass_y), color_small, 2)
 
     # Dessiner 360° de graduations centrées sur yaw
     for deg in range(0, 360):
@@ -165,21 +165,21 @@ def draw_compass(frame, yaw):
 
         if deg % 45 == 0:
             # Grand trait + cardinal
-            cv2.line(frame, (px, compass_y - 5), (px, compass_y + 25), color_cardinal, 2)
+            cv2.line(frame, (px, compass_y - 5), (px, compass_y + 25), color_cardinal, 3)
             label = cardinals.get(deg, '')
             cv2.putText(frame, label, (px - 12, compass_y + 45),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_cardinal, 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_cardinal, 3)
         elif deg % 10 == 0:
             # Trait moyen + chiffre
-            cv2.line(frame, (px, compass_y - 3), (px, compass_y + 18), color_large, 1)
+            cv2.line(frame, (px, compass_y - 3), (px, compass_y + 18), color_large, 2)
             cv2.putText(frame, str(deg), (px - 10, compass_y + 38),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_large, 1)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_large, 2)
         elif deg % 5 == 0:
             # Trait moyen sans chiffre
-            cv2.line(frame, (px, compass_y), (px, compass_y + 12), color_small, 1)
+            cv2.line(frame, (px, compass_y), (px, compass_y + 12), color_small, 2)
         else:
             # Petit trait
-            cv2.line(frame, (px, compass_y), (px, compass_y + 6), color_small, 1)
+            cv2.line(frame, (px, compass_y), (px, compass_y + 6), color_small, 2)
 
     # Marqueur cap fixe (triangle)
     pts = np.array([[cx, compass_y - 10], [cx - 6, compass_y - 2], [cx + 6, compass_y - 2]])
