@@ -299,6 +299,20 @@ def draw_zone_c(frame, fps):
 
     return frame
 
+def draw_zone_d(frame, alert_active):
+    if not alert_active:
+        return frame
+    h, w = frame.shape[:2]
+    # Zone D : centre gauche, 200px de large
+    cx_d = 100  # centre de la zone D
+    cy = h // 2
+    # Flèche principale
+    cv2.arrowedLine(frame, (190, cy), (30, cy), (0, 0, 255), 8, tipLength=0.4)
+    # Texte alerte
+    cv2.putText(frame, "MVT", (20, cy - 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    return frame
+
 def draw_zone_centre(frame):
     if not SHOW_RETICULE:
         return frame
@@ -308,6 +322,19 @@ def draw_zone_centre(frame):
     cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 2)
     cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 2)
     cv2.circle(frame, (cx, cy), 30, color, 2)
+    return frame
+
+def draw_zone_e(frame, alert_active):
+    if not alert_active:
+        return frame
+    h, w = frame.shape[:2]
+    cx_e = w - 100  # centre de la zone E
+    cy = h // 2
+    # Flèche principale
+    cv2.arrowedLine(frame, (w - 190, cy), (w - 30, cy), (0, 0, 255), 8, tipLength=0.4)
+    # Texte alerte
+    cv2.putText(frame, "MVT", (w - 70, cy - 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
 def draw_zone_h(frame, temperature, humidity, gas):
@@ -444,13 +471,10 @@ while True:
     fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
     
     # Flèches d'alerte
-    h, w = fl.shape[:2]
-    if now_t - alert_l_time < ALERT_DURATION:
-        cv2.arrowedLine(fl, (200, h//2), (50, h//2), (0,0,255), 8, tipLength=0.4)
-        cv2.arrowedLine(fr, (200, h//2), (50, h//2), (0,0,255), 8, tipLength=0.4)
-    if now_t - alert_r_time < ALERT_DURATION:
-        cv2.arrowedLine(fl, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
-        cv2.arrowedLine(fr, (w-200, h//2), (w-50, h//2), (0,0,255), 8, tipLength=0.4)
+    fl = draw_zone_d(fl, now_t - alert_l_time < ALERT_DURATION)
+    fr = draw_zone_d(fr, now_t - alert_l_time < ALERT_DURATION)
+    fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION)
+    fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION)
 
     composite = np.hstack([fl, fr])
 
