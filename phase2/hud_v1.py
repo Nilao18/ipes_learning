@@ -4,6 +4,8 @@ import threading
 import time
 from datetime import datetime
 import math
+import os
+from PIL import Image
 
 # Import adafruit après le reset
 from adafruit_extended_bus import ExtendedI2C as I2C
@@ -16,6 +18,8 @@ SHOW_RETICULE = False
 SHOW_HORIZON = False
 SHOW_COMPASS = True
 SHOW_ALTITUDE = True
+
+TILES_DIR = "/home/quentin/ipes/maps/tours"
 
 class IMUThread:
     def __init__(self):
@@ -196,6 +200,69 @@ def draw_compass(frame, yaw):
     pts = np.array([[cx, compass_y - 4], [cx - 12, compass_y - 16], [cx + 12, compass_y - 16]])
     cv2.fillPoly(frame, [pts], color_large)
 
+    return frame
+
+def get_minimap(lat, lon, zoom=14, size=400):
+    x_tile, y_tile = deg2tile(lat, lon, zoom)
+    
+    # Charger 3x3 tuiles autour de la position
+    canvas = np.zeros((size, size, 3), dtype=np.uint8)
+    tile_size = 256
+    
+    for dx in range(-1, 2):
+        for dy in range(-1, 2):
+            tx = x_tile + dx
+            ty = y_tile + dy
+            path = os.path.join(TILES_DIR, str(zoom), str(tx), f"{ty}.png")
+            
+            if not os.path.exists(path):
+                continue
+            
+            img = np.array(Image.open(path).convert('RGB'))
+            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+            
+            # Position sur le canvas
+            cx = size//2 + dx * tile_size
+            cy = size//2 + dy * tile_size
+            
+            # Clip et colle
+            x1 = max(0, cx - tile_size//2)
+            y1 = max(0, cy - tile_size//2)
+            x2 = min(size, cx + tile_size//2)
+            y2 = min(size, cy + tile_size//2)
+            
+            sx1 = max(0, tile_size//2 - cx)
+            sy1 = max(0, tile_size//2 - cy)
+            
+            if x2 > x1 and y2 > y1:
+                canvas[y1:y2, x1:x2] = img[sy1:sy1+(y2-y1), sx1:sx1+(x2-x1)]
+    
+    # Marqueur position (triangle)
+    cv2.circle(canvas, (size//2, size//2), 6, (0, 0, 255), -1)
+    cv2.circle(canvas, (size//2, size//2), 8, (255, 255, 255), 2)
+    
+    return canvas
+
+def deg2tile(lat, lon, zoom):
+    lat_r = math.radians(lat)
+    n = 2 ** zoom
+    x = int((lon + 180) / 360 * n)
+    y = int((1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n)
+    return x, y
+
+def draw_zone_a(frame, lat, lon, zoom=14):
+    h, w = frame.shape[:2]
+    
+    minimap = get_minimap(lat, lon, zoom=zoom, size=200)
+    
+    # Bordure zone A
+    cv2.rectangle(minimap, (0, 0), (199, 199), (0, 150, 0), 1)
+    cv2.putText(minimap, "NAV", (5, 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 150, 0), 1)
+    
+    # Coller en haut gauche
+    frame[0:200, 0:200] = minimap
+    
     return frame
 
 def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
@@ -478,6 +545,9 @@ while True:
 
     fl = cv2.resize(fl, (1440, 1440))
     fr = cv2.resize(fr, (1440, 1440))
+
+    fl = draw_zone_a(fl, 47.3941, 0.6848)
+    fr = draw_zone_a(fr, 47.3941, 0.6848)
 
     fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
     fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
