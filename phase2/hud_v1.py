@@ -11,6 +11,8 @@ from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 
+DEBUG = False #True pour afficher FPS/LAT
+
 class IMUThread:
     def __init__(self):
         print("Init IMU...")
@@ -108,10 +110,13 @@ def draw_hud(frame, side, fps, lat, roll=0, pitch=0, yaw=0):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 3)
     cv2.putText(frame, now.strftime("%d/%m/%Y"), (10, 60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, f"FPS:{fps:.1f}", (10, 90),
+
+    if DEBUG:
+        cv2.putText(frame, f"FPS:{fps:.1f}", (10, 90),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, f"LAT:{lat:.0f}ms", (10, 120),
+        cv2.putText(frame, f"LAT:{lat:.0f}ms", (10, 120),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+
     cv2.putText(frame, f"R:{roll:6.1f}", (10, 150),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
     cv2.putText(frame, f"P:{pitch:6.1f}", (10, 180),
