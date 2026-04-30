@@ -12,6 +12,10 @@ from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 
 DEBUG = False #True pour afficher FPS/LAT
+SHOW_RETICULE = False
+SHOW_HORIZON = False
+SHOW_COMPASS = True
+SHOW_ALTITUDE = True
 
 class IMUThread:
     def __init__(self):
@@ -102,35 +106,6 @@ class CameraThread:
         self.running = False
         self.cap.release()
 
-def draw_hud(frame, side, fps, lat, roll=0, pitch=0, yaw=0):
-    h, w = frame.shape[:2]
-    now = datetime.now()
-    color = (0, 255, 0)
-    cv2.putText(frame, now.strftime("%H:%M:%S"), (10, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 3)
-    cv2.putText(frame, now.strftime("%d/%m/%Y"), (10, 60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-    if DEBUG:
-        cv2.putText(frame, f"FPS:{fps:.1f}", (10, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-        cv2.putText(frame, f"LAT:{lat:.0f}ms", (10, 120),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-    cv2.putText(frame, f"R:{roll:6.1f}", (10, 150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, f"P:{pitch:6.1f}", (10, 180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, f"Y:{yaw:6.1f}", (10, 210),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-    cv2.putText(frame, side, (w-80, 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-    cx, cy = w//2, h//2
-    cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 2)
-    cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 2)
-    cv2.circle(frame, (cx, cy), 30, color, 2)
-    return frame
-
 def detect_motion_zone(prev_gray, gray, seuil=10):
     small_prev = cv2.resize(prev_gray, (160, 90))
     small_gray = cv2.resize(gray, (160, 90))
@@ -175,7 +150,7 @@ def draw_horizon(frame, roll, pitch):
 def draw_compass(frame, yaw):
     h, w = frame.shape[:2]
     cx = w // 2
-    compass_y = 30
+    compass_y = 40
     compass_w = w // 2 # moitié de la largeur au lieu de w - 100
     deg_per_px = compass_w / 60.0  # 60° visibles au total
 
@@ -209,7 +184,7 @@ def draw_compass(frame, yaw):
             # Trait moyen + chiffre
             cv2.line(frame, (px, compass_y - 3), (px, compass_y + 18), color_large, 2)
             cv2.putText(frame, str(deg), (px - 10, compass_y + 38),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_large, 2)
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_large, 2)
         elif deg % 5 == 0:
             # Trait moyen sans chiffre
             cv2.line(frame, (px, compass_y), (px, compass_y + 12), color_small, 2)
@@ -218,9 +193,121 @@ def draw_compass(frame, yaw):
             cv2.line(frame, (px, compass_y), (px, compass_y + 6), color_small, 2)
 
     # Marqueur cap fixe (triangle)
-    pts = np.array([[cx, compass_y - 10], [cx - 6, compass_y - 2], [cx + 6, compass_y - 2]])
+    pts = np.array([[cx, compass_y - 4], [cx - 12, compass_y - 16], [cx + 12, compass_y - 16]])
     cv2.fillPoly(frame, [pts], color_large)
 
+    return frame
+
+def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
+    # Horizon artificiel
+    if SHOW_HORIZON:
+        frame = draw_horizon(frame, roll, pitch)
+    
+    # Boussole
+    COMPASS_OFFSET = -45
+    if SHOW_COMPASS:
+        frame = draw_compass(frame, (-yaw + COMPASS_OFFSET) % 360)
+    
+    # Curseurs altitude
+    alt_m = 44330 * (1 - (pressure / 1013.25) ** 0.1903)
+    alt_ft = alt_m * 3.28084
+
+    h, w = frame.shape[:2]
+    cx = w // 2
+    compass_w = w // 2
+    
+    color_large = (255, 255, 255)
+    color_small = (0, 200, 0)
+    color_dim = (0, 150, 0)
+    
+    compass_left  = cx - compass_w//2 - 10  # juste à gauche de la boussole
+    compass_right = cx + compass_w//2 + 10  # juste à droite
+
+    if SHOW_ALTITUDE:
+        # Curseur gauche = pieds
+        cv2.putText(frame, "FT", (compass_left - 25, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 2)
+        cv2.putText(frame, f"{alt_ft:.0f}", (compass_left - 30, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+
+        # Curseur droit = mètres
+        cv2.putText(frame, "M", (compass_right + 15, 25),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 2)
+        cv2.putText(frame, f"{alt_m:.0f}", (compass_right + 5, 50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+    
+        # Graduation verticale altitude — gauche (pieds)
+        grad_h = 200  # hauteur totale de la graduation
+        grad_x_l = compass_left - 45
+        grad_y_center = 120  # centre vertical
+        cv2.line(frame, (grad_x_l, grad_y_center - grad_h//2),
+             (grad_x_l, grad_y_center + grad_h//2), color_dim, 2)
+
+        for i in range(-5, 6):
+            y = grad_y_center + i * 20
+            if i % 5 == 0:
+                cv2.line(frame, (grad_x_l - 8, y), (grad_x_l, y), color_large, 3)
+                cv2.putText(frame, f"{int(alt_ft - i*50)}", (grad_x_l - 50, y+5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+            else:
+                cv2.line(frame, (grad_x_l - 4, y), (grad_x_l, y), color_small, 2)
+
+        # Graduation verticale altitude — droite (mètres)
+        grad_x_r = compass_right + 45
+        cv2.line(frame, (grad_x_r, grad_y_center - grad_h//2),
+             (grad_x_r, grad_y_center + grad_h//2), color_dim, 2)
+
+        for i in range(-5, 6):
+            y = grad_y_center + i * 20
+            if i % 5 == 0:
+                cv2.line(frame, (grad_x_r, y), (grad_x_r + 8, y), color_large, 3)
+                cv2.putText(frame, f"{int(alt_m - i*15)}", (grad_x_r + 20, y+5),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+            else:
+                cv2.line(frame, (grad_x_r, y), (grad_x_r + 4, y), color_small, 2)
+    
+    # R/P/Y — zone B haut gauche sous la boussole
+    color_dim = (0, 150, 0)
+    h, w = frame.shape[:2]
+    cx = w // 2
+
+    if DEBUG:
+        cv2.putText(frame, f"R:{roll:6.1f}", (cx - 0, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+        cv2.putText(frame, f"P:{pitch:6.1f}", (cx - 0, 120),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+        cv2.putText(frame, f"Y:{yaw:6.1f}", (cx - 0, 140),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)    
+    return frame
+
+def draw_zone_c(frame, fps):
+    h, w = frame.shape[:2]
+    # Zone C : haut droite 200x200px
+    x = w - 195
+    y = 10
+    color_dim = (0, 150, 0)
+    now = datetime.now()
+
+    cv2.putText(frame, now.strftime("%H:%M:%S"), (x, y+20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 1)
+    cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+45),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_dim, 1)
+
+    if DEBUG:
+        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+68),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_dim, 1)
+
+    return frame
+
+def draw_zone_centre(frame):
+    if not SHOW_RETICULE:
+        return frame
+    h, w = frame.shape[:2]
+    cx, cy = w//2, h//2
+    color = (0, 255, 0)
+    cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 2)
+    cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 2)
+    cv2.circle(frame, (cx, cy), 30, color, 2)
     return frame
 
 def draw_zone_h(frame, temperature, humidity, gas):
@@ -315,9 +402,6 @@ while True:
     if len(fr.shape) == 2:
         fr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
 
-    fl = cv2.resize(fl, (1440, 1440))
-    fr = cv2.resize(fr, (1440, 1440))
-
     if time.time() - lat_update > 1.0:
         lat_display = (time.time() - cam_left.timestamp) * 1000
         lat_update = time.time()
@@ -344,18 +428,20 @@ while True:
                 alert_r_time = now_t
         prev_gray_r = gray_r.copy()
 
-    fl = draw_hud(fl, "L", fps, lat_display, imu.roll, imu.pitch, imu.yaw)
-    fr = draw_hud(fr, "R", fps, lat_display, imu.roll, imu.pitch, imu.yaw)
+    fl = cv2.resize(fl, (1440, 1440))
+    fr = cv2.resize(fr, (1440, 1440))
 
-    fl = draw_horizon(fl, imu.roll, imu.pitch)
-    fr = draw_horizon(fr, imu.roll, imu.pitch)
+    fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+    fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+
+    fl = draw_zone_c(fl, fps)
+    fr = draw_zone_c(fr, fps)
+
+    fl = draw_zone_centre(fl)
+    fr = draw_zone_centre(fr)
 
     fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas)
     fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
-    
-    COMPASS_OFFSET = -45  # à ajuster selon ta calibration
-    fl = draw_compass(fl, (-imu.yaw + COMPASS_OFFSET) % 360)
-    fr = draw_compass(fr, (-imu.yaw + COMPASS_OFFSET) % 360)
     
     # Flèches d'alerte
     h, w = fl.shape[:2]
