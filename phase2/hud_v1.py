@@ -387,6 +387,27 @@ def draw_zone_h(frame, temperature, humidity, gas):
     
     return frame
 
+def draw_zone_i(frame, message, color=(0, 0, 255)):
+    h, w = frame.shape[:2]
+    cy = h // 2
+    
+    # Fond semi-opaque pleine largeur
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (0, cy - 60), (w, cy + 60), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
+    
+    # Bordures
+    cv2.line(frame, (0, cy - 60), (w, cy - 60), color, 2)
+    cv2.line(frame, (0, cy + 60), (w, cy + 60), color, 2)
+    
+    # Texte centré
+    text_size = cv2.getTextSize(message, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
+    tx = (w - text_size[0]) // 2
+    cv2.putText(frame, message, (tx, cy + 15),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+    
+    return frame
+
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
 
@@ -475,6 +496,11 @@ while True:
     fr = draw_zone_d(fr, now_t - alert_l_time < ALERT_DURATION)
     fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION)
     fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION)
+
+    # Zone I — alerte critique gaz
+    if bme.gas > 0 and bme.gas < 20000:
+        fl = draw_zone_i(fl, "!!! ALERTE GAZ !!!")
+        fr = draw_zone_i(fr, "!!! ALERTE GAZ !!!")
 
     composite = np.hstack([fl, fr])
 
