@@ -353,6 +353,40 @@ def draw_zone_a(frame, lat, lon, zoom=14):
 
 # --------------------------------------------------------------------------------Affichage de la Zone B
 def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
+    h, w = frame.shape[:2]
+    cx = w // 2
+    compass_w = w // 2
+
+    # Fond semi-transparent derrière la zone boussole + altimètres
+    overlay = frame.copy()
+
+    # Rectangle couvrant boussole + curseurs altitude
+    x1 = cx - compass_w//2 - 80  # inclut curseurs gauche
+    x2 = cx + compass_w//2 + 80  # inclut curseurs droite
+    y1 = 0
+    y2 = 220  # hauteur couvrant boussole + graduations
+
+    # Fond derrière boussole
+    if SHOW_COMPASS:
+        cv2.rectangle(overlay, 
+                      (cx - compass_w//2 - 5, 0), 
+                      (cx + compass_w//2 + 5, 95), 
+                      (0, 0, 0), -1)
+
+    # Fond derrière curseur gauche (pieds)
+    if SHOW_ALTITUDE:
+        cv2.rectangle(overlay,
+                      (cx - compass_w//2 - 110, 0),
+                      (cx - compass_w//2, 240),
+                      (0, 0, 0), -1)
+        # Fond derrière curseur droit (mètres)
+        cv2.rectangle(overlay,
+                      (cx + compass_w//2, 0),
+                      (cx + compass_w//2 + 110, 240),
+                      (0, 0, 0), -1)
+
+    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+
     # Horizon artificiel
     if SHOW_HORIZON:
         frame = draw_horizon(frame, roll, pitch)
@@ -366,10 +400,6 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     alt_m = 44330 * (1 - (pressure / 1013.25) ** 0.1903)
     alt_ft = alt_m * 3.28084
 
-    h, w = frame.shape[:2]
-    cx = w // 2
-    compass_w = w // 2
-    
     color_large = (255, 255, 255)
     color_small = (0, 200, 0)
     color_dim = (0, 150, 0)
@@ -379,27 +409,35 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
     if SHOW_ALTITUDE:
         # Curseur gauche = pieds
-        cv2.putText(frame, "FT", (compass_left - 25, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 2)
-        cv2.putText(frame, f"{alt_ft:.0f}", (compass_left - 30, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+        cv2.putText(frame, "FT", (compass_left - 60, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+        #cv2.putText(frame, f"{alt_ft:.0f}", (compass_left - 30, 120 + 5),
+        #       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
 
         # Curseur droit = mètres
-        cv2.putText(frame, "M", (compass_right + 15, 25),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 2)
-        cv2.putText(frame, f"{alt_m:.0f}", (compass_right + 5, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+        cv2.putText(frame, "M", (compass_right + 50, 100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+        #cv2.putText(frame, f"{alt_m:.0f}", (compass_right, 120 + 5),
+        #        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
     
         # Graduation verticale altitude — gauche (pieds)
         grad_h = 200  # hauteur totale de la graduation
-        grad_x_l = compass_left - 45
+        grad_x_l = compass_left - 5
         grad_y_center = 120  # centre vertical
         cv2.line(frame, (grad_x_l, grad_y_center - grad_h//2),
              (grad_x_l, grad_y_center + grad_h//2), color_dim, 2)
 
         for i in range(-5, 6):
             y = grad_y_center + i * 20
-            if i % 5 == 0:
+
+            if i == 0:
+                # Valeur réelle — trait épais + texte blanc grand
+                cv2.line(frame, (grad_x_l - 12, y), (grad_x_l, y), color_large, 3)
+                txt_ft = f"{int(alt_ft)}"
+                txt_ft_w = cv2.getTextSize(txt_ft, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+                cv2.putText(frame, txt_ft, (grad_x_l - 20 - txt_ft_w, y + 8),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+            elif i % 5 == 0:
                 cv2.line(frame, (grad_x_l - 8, y), (grad_x_l, y), color_large, 3)
                 cv2.putText(frame, f"{int(alt_ft - i*50)}", (grad_x_l - 50, y+5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
@@ -407,13 +445,18 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                 cv2.line(frame, (grad_x_l - 4, y), (grad_x_l, y), color_small, 2)
 
         # Graduation verticale altitude — droite (mètres)
-        grad_x_r = compass_right + 45
+        grad_x_r = compass_right + 5
         cv2.line(frame, (grad_x_r, grad_y_center - grad_h//2),
              (grad_x_r, grad_y_center + grad_h//2), color_dim, 2)
 
         for i in range(-5, 6):
             y = grad_y_center + i * 20
-            if i % 5 == 0:
+            if i == 0:
+                # Valeur réelle — trait épais + texte blanc grand
+                cv2.line(frame, (grad_x_r + 12, y), (grad_x_r, y), color_large, 3)
+                cv2.putText(frame, f"{int(alt_ft)}", (grad_x_r + 20, y + 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+            elif i % 5 == 0:
                 cv2.line(frame, (grad_x_r, y), (grad_x_r + 8, y), color_large, 3)
                 cv2.putText(frame, f"{int(alt_m - i*15)}", (grad_x_r + 20, y+5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
