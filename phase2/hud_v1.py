@@ -38,11 +38,12 @@ import adafruit_bme680
 # Zone I - Bandeau d'alerte central (temporaire)
 
 # Variables pour affichage éléments
-DEBUG = True #True pour afficher FPS/LAT (Zone C)
+DEBUG = False #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
 SHOW_RETICULE = False # True pour afficher le réticule central (Zone CENTRE)
 SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
+SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
 ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
 SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
 
@@ -338,7 +339,7 @@ def deg2tile(lat, lon, zoom):
 def draw_zone_a(frame, lat, lon, zoom=14):
     h, w = frame.shape[:2]
     
-    minimap = get_minimap(lat, lon, zoom=zoom, size=200)
+    minimap = get_minimap(lat, lon, zoom=zoom, size=250)
     
     # Bordure zone A
     cv2.rectangle(minimap, (0, 0), (199, 199), (0, 150, 0), 1)
@@ -346,7 +347,7 @@ def draw_zone_a(frame, lat, lon, zoom=14):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 150, 0), 1)
     
     # Coller en haut gauche
-    frame[0:200, 0:200] = minimap
+    frame[0:250, 0:250] = minimap
     
     return frame
 
@@ -443,15 +444,15 @@ def draw_zone_c(frame, fps, side=""):
     now = datetime.now()
 
     cv2.putText(frame, now.strftime("%H:%M:%S"), (x, y+20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 1)
-    cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+45),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_dim, 1)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
+    cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
 
     if DEBUG:
         cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+68),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_dim, 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
         cv2.putText(frame, side, (x, y+90),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
 
     return frame
 
@@ -517,7 +518,7 @@ def draw_zone_g(frame, text):
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone H
-def draw_zone_h(frame, temperature, humidity, gas):
+def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
     h, w = frame.shape[:2]
     
     # Zone H : bas droite 200x200px
@@ -532,19 +533,19 @@ def draw_zone_h(frame, temperature, humidity, gas):
     cv2.rectangle(frame, (x, y), (w-1, h-1), color_dim, 1)
     
     # Label zone
-    cv2.putText(frame, "ENV", (x+8, y+20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+    cv2.putText(frame, "ENV", (x+90, y+20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
     
     # Température
-    cv2.putText(frame, "TEMP", (x+8, y+42),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 1)
-    cv2.putText(frame, f"{temperature:.1f}C", (x+8, y+68),
+    cv2.putText(frame, "TEMP :", (x+8, y+60),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
+    cv2.putText(frame, f"{temperature:.1f}C", (x+65, y+60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     
     # Humidité
-    cv2.putText(frame, "HUM", (x+8, y+98),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1)
-    cv2.putText(frame, f"{humidity:.0f}%", (x+8, y+124),
+    cv2.putText(frame, "HUM :", (x+8, y+100),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
+    cv2.putText(frame, f"{humidity:.0f}%", (x+65, y+100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     
     # Gaz VOC — indicateur qualitatif
@@ -558,12 +559,20 @@ def draw_zone_h(frame, temperature, humidity, gas):
         gaz_label = "ALERTE"
         gaz_color = (0, 0, 255)
 
-    cv2.putText(frame, "GAZ", (x+8, y+150),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 200, 0), 1)
-    cv2.putText(frame, gaz_label, (x+8, y+174),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, gaz_color, 2)
-    cv2.putText(frame, f"{gas//1000}k ohm", (x+8, y+198),
+    cv2.putText(frame, "GAZ :", (x+8, y+140),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
+    cv2.putText(frame, gaz_label, (x+65, y+140),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, gaz_color, 2)
+
+    if SHOW_GAS_RES:
+        cv2.putText(frame, f"Gas res :{gas//1000}k ohm", (x+8, y+160),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+
+    # Pression
+    cv2.putText(frame, "PRES :", (x+8, y+180),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
+    cv2.putText(frame, f"{pressure:.1f}hPa", (x+65, y+180),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
     
     return frame
 
@@ -701,8 +710,8 @@ while True:
         fr = draw_zone_g(fr, ocr.text)
 
     # Zone H - Données environnement
-    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas)
-    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
+    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas, bme.pressure)
 
     # Zone I — Alerte critique gaz
     if bme.gas > 0 and bme.gas < 20000:
