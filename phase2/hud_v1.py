@@ -53,6 +53,11 @@ SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
 TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
+CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"  # IMX462
+
+NIGHT_VISION = False  # True = caméra nocturne active
+NIGHT_VISION_AUTO_SWITCH = True  # True = bascule auto après délai
+NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
 
 #------------------------------------------------------------------------------------
 # Thread IMU (BNO085)- Inertial Mesurement Unit / Centrale Inertielle : Pitch, Yaw, Roll
@@ -648,6 +653,8 @@ cam_left  = CameraThread(CAM_LEFT)
 time.sleep(1)
 cam_right = CameraThread(CAM_RIGHT)
 time.sleep(1)
+cam_night = None
+time.sleep(1)
 imu = IMUThread()
 time.sleep(0.5)
 bme = BMEThread()
@@ -677,15 +684,14 @@ jetson_temp = 0.0
 cpu_percent = 0.0
 sys_update = time.time()
 
+night_switch_time = 0
+
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 cv2.resizeWindow("IPES HUD V1", 2880, 1440)
 
 # ----------------------------------------------------------------------------- Boucle While
 while True:
-    if cam_left.frame is None or cam_right.frame is None:
-        continue
-
     if time.time() - sys_update > 2.0:
         try:
             with open('/sys/devices/virtual/thermal/thermal_zone1/temp') as f:
@@ -695,8 +701,31 @@ while True:
             pass
         sys_update = time.time()
 
-    fl = cam_left.frame.copy()
-    fr = cam_right.frame.copy()
+    # Bascule nocturne automatique
+    if NIGHT_VISION_AUTO_SWITCH and not NIGHT_VISION:
+        if time.time() - t0 > NIGHT_VISION_DELAY:
+            if night_switch_time == 0:
+                cam_left.stop()
+                cam_right.stop()
+                night_switch_time = time.time()
+                print("Arrêt caméras stéréo...")
+            elif time.time() - night_switch_time > 1.0 and cam_night is None:
+                cam_night = CameraThread(CAM_NIGHT)
+                time.sleep(0.5)
+                NIGHT_VISION = True
+                print("Bascule vision nocturne")
+
+    # Flux vision classique / vision nocturne
+    if NIGHT_VISION:
+        if cam_night is None or cam_night.frame is None:
+            continue
+        fl = cam_night.frame.copy()
+        fr = cam_night.frame.copy()  # même flux sur les deux yeux
+    else:
+        if cam_left.frame is None or cam_right.frame is None:
+            continue
+        fl = cam_left.frame.copy()
+        fr = cam_right.frame.copy()
 
     if len(fl.shape) == 2:
         fl = cv2.cvtColor(fl, cv2.COLOR_GRAY2BGR)
@@ -704,7 +733,8 @@ while True:
         fr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
 
     if time.time() - lat_update > 1.0:
-        lat_display = (time.time() - cam_left.timestamp) * 1000
+        if not NIGHT_VISION and cam_left.timestamp:
+            lat_display = (time.time() - cam_left.timestamp) * 1000
         lat_update = time.time()
 
     # Flux optique en alternance
