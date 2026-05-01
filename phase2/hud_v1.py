@@ -11,6 +11,8 @@ from adafruit_extended_bus import ExtendedI2C as I2C # Import adafruit après le
 from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
+import psutil
+import subprocess
 
 # Zones HUD - 
 #---------------------------
@@ -360,12 +362,6 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     # Fond semi-transparent derrière la zone boussole + altimètres
     overlay = frame.copy()
 
-    # Rectangle couvrant boussole + curseurs altitude
-    x1 = cx - compass_w//2 - 80  # inclut curseurs gauche
-    x2 = cx + compass_w//2 + 80  # inclut curseurs droite
-    y1 = 0
-    y2 = 220  # hauteur couvrant boussole + graduations
-
     # Fond derrière boussole
     if SHOW_COMPASS:
         cv2.rectangle(overlay, 
@@ -478,7 +474,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
-def draw_zone_c(frame, fps, side=""):
+def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0):
     h, w = frame.shape[:2]
     # Zone C : haut droite 200x200px
     x = w - 195
@@ -491,10 +487,18 @@ def draw_zone_c(frame, fps, side=""):
     cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
 
+    # Température et charge Jetson
+    temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
+    cv2.putText(frame, f"CPU:{cpu:.0f}%", (x, y+80),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
+    cv2.putText(frame, f"T:{jetson_temp:.0f}°C", (x, y+110),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, temp_color, 2)
+
+    # debug fps + latence
     if DEBUG:
-        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+68),
+        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+140),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
-        cv2.putText(frame, side, (x, y+90),
+        cv2.putText(frame, side, (x, y+160),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
 
     return frame
@@ -505,7 +509,6 @@ def draw_zone_d(frame, alert_active):
         return frame
     h, w = frame.shape[:2]
     # Zone D : centre gauche, 200px de large
-    cx_d = 100  # centre de la zone D
     cy = h // 2
     # Flèche principale
     cv2.arrowedLine(frame, (190, cy), (30, cy), (0, 0, 255), 8, tipLength=0.4)
@@ -531,7 +534,6 @@ def draw_zone_e(frame, alert_active):
     if not alert_active:
         return frame
     h, w = frame.shape[:2]
-    cx_e = w - 100  # centre de la zone E
     cy = h // 2
     # Flèche principale
     cv2.arrowedLine(frame, (w - 190, cy), (w - 30, cy), (0, 0, 255), 8, tipLength=0.4)
@@ -668,6 +670,10 @@ alert_r_time = 0
 ALERT_DURATION = 1.5
 ZONE_SEUIL = 600
 
+jetson_temp = 0.0
+cpu_percent = 0.0
+sys_update = time.time()
+
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 cv2.resizeWindow("IPES HUD V1", 2880, 1440)
@@ -676,6 +682,15 @@ cv2.resizeWindow("IPES HUD V1", 2880, 1440)
 while True:
     if cam_left.frame is None or cam_right.frame is None:
         continue
+
+    if time.time() - sys_update > 2.0:
+        try:
+            with open('/sys/devices/virtual/thermal/thermal_zone1/temp') as f:
+                jetson_temp = int(f.read().strip()) / 1000
+            cpu_percent = psutil.cpu_percent()
+        except:
+            pass
+        sys_update = time.time()
 
     fl = cam_left.frame.copy()
     fr = cam_right.frame.copy()
@@ -729,11 +744,8 @@ while True:
     fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
 
     # Zone C - Données système
-    fl = draw_zone_c(fl, fps)
-    fr = draw_zone_c(fr, fps)
-    
-    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "")
-    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "")
+    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "", jetson_temp, cpu_percent)
+    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "", jetson_temp, cpu_percent)
     
     # Zone Centre - réticule et horizon artificiel
     fl = draw_zone_centre(fl)
