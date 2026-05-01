@@ -645,9 +645,9 @@ def draw_zone_i(frame, message, color=(0, 0, 255)):
 
 #----------------------------------------------------------------------------- Instanciations
 cam_left  = CameraThread(CAM_LEFT)
-time.sleep(0.5)
+time.sleep(1)
 cam_right = CameraThread(CAM_RIGHT)
-time.sleep(0.5)
+time.sleep(1)
 imu = IMUThread()
 time.sleep(0.5)
 bme = BMEThread()
@@ -669,6 +669,9 @@ alert_l_time = 0
 alert_r_time = 0
 ALERT_DURATION = 1.5
 ZONE_SEUIL = 600
+SEUIL_RES_GAS = 20000
+SEUIL_TEMP_EXT = 35
+SEUIL_TEMP_JETSON = 75
 
 jetson_temp = 0.0
 cpu_percent = 0.0
@@ -769,9 +772,20 @@ while True:
     fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas, bme.pressure)
 
     # Zone I — Alerte critique gaz
-    if bme.gas > 0 and bme.gas < 20000:
+        # Alerte présence gaz
+    if bme.gas > 0 and bme.gas < SEUIL_RES_GAS:
         fl = draw_zone_i(fl, "!!! ALERTE GAZ !!!")
         fr = draw_zone_i(fr, "!!! ALERTE GAZ !!!")
+
+        # Alerte température extérieure
+    if bme.temperature > SEUIL_TEMP_EXT:
+        fl = draw_zone_i(fl, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
+        fr = draw_zone_i(fr, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
+
+        # Alerte température Jetson
+    if jetson_temp > SEUIL_TEMP_JETSON:
+        fl = draw_zone_i(fl, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
+        fr = draw_zone_i(fr, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
 
     # Jonction des deux frames cote à cote
     composite = np.hstack([fl, fr])
