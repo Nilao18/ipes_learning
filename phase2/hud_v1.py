@@ -6,21 +6,54 @@ from datetime import datetime
 import math
 import os
 from PIL import Image
-
-# Import adafruit après le reset
-from adafruit_extended_bus import ExtendedI2C as I2C
+import pytesseract
+from adafruit_extended_bus import ExtendedI2C as I2C # Import adafruit après le reset
 from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 
-DEBUG = False #True pour afficher FPS/LAT
-SHOW_RETICULE = False
-SHOW_HORIZON = False
-SHOW_COMPASS = True
-SHOW_ALTITUDE = True
+# Zones HUD - 
+#---------------------------
+#    A |      B     |  C   |
+#      |            |      |
+#------|------------|------|
+#  D   |   CENTRE   |  E   |
+#==========================|
+#             I            |
+#==========================|
+#  D   |   CENTRE   |  E   |
+#------|------------|------|
+#  F   |      G     |  H   |
+#      |            |      |
+#---------------------------
 
-TILES_DIR = "/home/quentin/ipes/maps/tours"
+# Zone A - Navigation GPS + minimap
+# Zone B - Boussole + Altimètre
+# Zone C - Infos système (heure/date/FPS/latence/écran droit ou gauche)
+# Zone D - Alerte mouvement coté gauche
+# Zone E - Alerte mouvement coté droit
+# Zone F - Biodata (Fréquence cardiaque/SPO2/Temperature corporelle)
+# Zone G - Transcription et traduction en temps réel (texte + voix)
+# Zone H - Infos environnement (Température/humidité/présence gaz)
+# Zone I - Bandeau d'alerte central (temporaire)
 
+# Variables pour affichage éléments
+DEBUG = True #True pour afficher FPS/LAT (Zone C)
+SHOW_RETICULE = False # True pour afficher le réticule central (Zone CENTRE)
+SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
+SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
+SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
+ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
+SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
+
+# Chemins 
+CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
+CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
+TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
+
+#------------------------------------------------------------------------------------
+# Thread IMU (BNO085)- Inertial Mesurement Unit / Centrale Inertielle : Pitch, Yaw, Roll
+#------------------------------------------------------------------------------------
 class IMUThread:
     def __init__(self):
         print("Init IMU...")
@@ -55,6 +88,9 @@ class IMUThread:
     def stop(self):
         self.running = False
 
+#-----------------------------------------------------------------------------------
+#Thread BME (BME688) - Capteur de température, humidité et gaz
+#-----------------------------------------------------------------------------------
 class BMEThread:
     def __init__(self):
         print("Init BME688...")
@@ -85,6 +121,49 @@ class BMEThread:
     def stop(self):
         self.running = False
 
+#-----------------------------------------------------------------------------------
+#Thread OCR - Transcription texte et voix / traduction temps réel
+#-----------------------------------------------------------------------------------
+class OCRThread:
+    def __init__(self):
+        self.text = ""
+        self.frame_to_process = None
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("OCR Thread OK")
+
+    def update(self):
+        config = '--oem 3 --psm 6 -l fra+eng'
+        while self.running:
+            if ACTIVATE_OCR and self.frame_to_process is not None:
+                try:
+                    # Meilleur prétraitement
+                    #gray = self.frame_to_process
+                    gray = cv2.cvtColor(self.frame_to_process, cv2.COLOR_BGR2GRAY)
+                    # Agrandir l'image x2 aide Tesseract
+                    #gray = cv2.resize(gray, None, fx=2, fy=2)
+                    # Débruitage
+                    #gray = cv2.GaussianBlur(gray, (3,3), 0)
+                    # Seuillage adaptatif plutôt qu'Otsu
+                    #gray = cv2.adaptiveThreshold(gray, 255,
+                    #    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                    #    cv2.THRESH_BINARY, 11, 2)
+                    text = pytesseract.image_to_string(gray, config=config).strip()
+                    lines = [l for l in text.split('\n') if len(l.strip()) > 2]
+                    self.text = ' | '.join(lines[-2:]) if lines else ""
+                    self.frame_to_process = None
+                except Exception as e:
+                    pass
+            time.sleep(3.0)
+
+    def stop(self):
+        self.running = False
+
+#-----------------------------------------------------------------------------------
+#Thread Camera - Capture via camera
+#-----------------------------------------------------------------------------------
 class CameraThread:
     def __init__(self, device):
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
@@ -110,6 +189,7 @@ class CameraThread:
         self.running = False
         self.cap.release()
 
+# -------------------------------------------------------------------------------Detection de mouvements latérale
 def detect_motion_zone(prev_gray, gray, seuil=10):
     small_prev = cv2.resize(prev_gray, (160, 90))
     small_gray = cv2.resize(gray, (160, 90))
@@ -120,6 +200,7 @@ def detect_motion_zone(prev_gray, gray, seuil=10):
     motion_right = np.sum(thresh[:, w//2:]) / 255
     return motion_left, motion_right
 
+#------------------------------------------------------------------------------ Affichage horizon artificiel
 def draw_horizon(frame, roll, pitch):
     h, w = frame.shape[:2]
     cx, cy = w // 2, h // 2
@@ -151,6 +232,7 @@ def draw_horizon(frame, roll, pitch):
 
     return frame
 
+#----------------------------------------------------------------------Affichage boussole
 def draw_compass(frame, yaw):
     h, w = frame.shape[:2]
     cx = w // 2
@@ -202,6 +284,7 @@ def draw_compass(frame, yaw):
 
     return frame
 
+#---------------------------------------------------------------------------- Chargement de la minimap
 def get_minimap(lat, lon, zoom=14, size=400):
     x_tile, y_tile = deg2tile(lat, lon, zoom)
     
@@ -243,6 +326,7 @@ def get_minimap(lat, lon, zoom=14, size=400):
     
     return canvas
 
+#----------------------------------- Conversion de le position en coordonnées GPS vers position sur tuille minimap
 def deg2tile(lat, lon, zoom):
     lat_r = math.radians(lat)
     n = 2 ** zoom
@@ -250,6 +334,7 @@ def deg2tile(lat, lon, zoom):
     y = int((1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n)
     return x, y
 
+# --------------------------------------------------------------------------------Affichage de la Zone A
 def draw_zone_a(frame, lat, lon, zoom=14):
     h, w = frame.shape[:2]
     
@@ -265,6 +350,7 @@ def draw_zone_a(frame, lat, lon, zoom=14):
     
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone B
 def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     # Horizon artificiel
     if SHOW_HORIZON:
@@ -347,7 +433,8 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)    
     return frame
 
-def draw_zone_c(frame, fps):
+# --------------------------------------------------------------------------------Affichage de la Zone C
+def draw_zone_c(frame, fps, side=""):
     h, w = frame.shape[:2]
     # Zone C : haut droite 200x200px
     x = w - 195
@@ -363,9 +450,12 @@ def draw_zone_c(frame, fps):
     if DEBUG:
         cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+68),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, color_dim, 1)
+        cv2.putText(frame, side, (x, y+90),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 1)
 
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone D
 def draw_zone_d(frame, alert_active):
     if not alert_active:
         return frame
@@ -380,6 +470,7 @@ def draw_zone_d(frame, alert_active):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone CENTRE
 def draw_zone_centre(frame):
     if not SHOW_RETICULE:
         return frame
@@ -391,6 +482,7 @@ def draw_zone_centre(frame):
     cv2.circle(frame, (cx, cy), 30, color, 2)
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone E
 def draw_zone_e(frame, alert_active):
     if not alert_active:
         return frame
@@ -404,6 +496,27 @@ def draw_zone_e(frame, alert_active):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone G
+def draw_zone_g(frame, text):
+    if not text:
+        return frame
+    h, w = frame.shape[:2]
+    
+    # Zone G : bas centre 1040x200px
+    x = 200
+    y = h - 180
+    zone_w = w - 400  # 1040px
+    
+    # Fond opaque derrière le texte uniquement
+    cv2.rectangle(frame, (x, y - 10), (x + zone_w, h - 10), (0, 0, 0), -1)
+    
+    # Texte style sous-titres cinéma
+    cv2.putText(frame, text[:80], (x + 10, y + 40),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    return frame
+
+# --------------------------------------------------------------------------------Affichage de la Zone H
 def draw_zone_h(frame, temperature, humidity, gas):
     h, w = frame.shape[:2]
     
@@ -454,6 +567,7 @@ def draw_zone_h(frame, temperature, humidity, gas):
     
     return frame
 
+# --------------------------------------------------------------------------------Affichage de la Zone I
 def draw_zone_i(frame, message, color=(0, 0, 255)):
     h, w = frame.shape[:2]
     cy = h // 2
@@ -475,18 +589,19 @@ def draw_zone_i(frame, message, color=(0, 0, 255)):
     
     return frame
 
-CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
-CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
-
+#----------------------------------------------------------------------------- Instanciations
 cam_left  = CameraThread(CAM_LEFT)
 time.sleep(0.5)
 cam_right = CameraThread(CAM_RIGHT)
-time.sleep(1)
+time.sleep(0.5)
 imu = IMUThread()
-time.sleep(1)
+time.sleep(0.5)
 bme = BMEThread()
-time.sleep(1)
+time.sleep(0.5)
+ocr = OCRThread()
+time.sleep(0.5)
 
+#----------------------------------------------------------------------------- Initialisation
 t0 = time.time()
 count = 0
 fps = 0
@@ -505,6 +620,7 @@ cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 cv2.resizeWindow("IPES HUD V1", 2880, 1440)
 
+# ----------------------------------------------------------------------------- Boucle While
 while True:
     if cam_left.frame is None or cam_right.frame is None:
         continue
@@ -526,6 +642,7 @@ while True:
     gray_r = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
     now_t = time.time()
 
+    # Bloc detection de mouvement
     if count % 2 == 0:
         if prev_gray_l is not None:
             ml, mr = detect_motion_zone(prev_gray_l, gray_l)
@@ -543,40 +660,63 @@ while True:
                 alert_r_time = now_t
         prev_gray_r = gray_r.copy()
 
+    # Redimensionner l'affichage pour correspondre à l'écran 1440x1440p du module Wisecoco
     fl = cv2.resize(fl, (1440, 1440))
     fr = cv2.resize(fr, (1440, 1440))
 
+    # Retourner le flux camera pour afficher dans le bon sens
+    fl = cv2.flip(fl, -1)
+    fr = cv2.flip(fr, -1)
+
+    # Zone A - Navigation GPS et minimap
     fl = draw_zone_a(fl, 47.3941, 0.6848)
     fr = draw_zone_a(fr, 47.3941, 0.6848)
 
+    # Zone B - Boussole et altimètre
     fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
     fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
 
+    # Zone C - Données système
     fl = draw_zone_c(fl, fps)
     fr = draw_zone_c(fr, fps)
-
+    
+    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "")
+    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "")
+    
+    # Zone Centre - réticule et horizon artificiel
     fl = draw_zone_centre(fl)
     fr = draw_zone_centre(fr)
-
-    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas)
-    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
     
-    # Flèches d'alerte
+    # Zone D/E - Flèches d'alerte
     fl = draw_zone_d(fl, now_t - alert_l_time < ALERT_DURATION)
     fr = draw_zone_d(fr, now_t - alert_l_time < ALERT_DURATION)
     fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION)
     fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION)
 
-    # Zone I — alerte critique gaz
+    # Zone G - Envoyer frame à l'OCR toutes les 90 frames (~3sec)
+    if ACTIVATE_OCR and count % 150 == 0:
+        ocr.frame_to_process = cv2.flip(cam_left.frame.copy(), -1)
+    if SHOW_OCR:
+        fl = draw_zone_g(fl, ocr.text)
+        fr = draw_zone_g(fr, ocr.text)
+
+    # Zone H - Données environnement
+    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas)
+    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas)
+
+    # Zone I — Alerte critique gaz
     if bme.gas > 0 and bme.gas < 20000:
         fl = draw_zone_i(fl, "!!! ALERTE GAZ !!!")
         fr = draw_zone_i(fr, "!!! ALERTE GAZ !!!")
 
+    # Jonction des deux frames cote à cote
     composite = np.hstack([fl, fr])
 
     count += 1
     fps = count / (time.time() - t0)
 
+    # Affichage de la compisition de frame sur sortie vidéo
+    composite = cv2.flip(composite, -1) # Flip horizontal + vertical
     cv2.imshow("IPES HUD V1", composite)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
