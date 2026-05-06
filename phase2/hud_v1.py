@@ -42,7 +42,7 @@ import multiprocessing as mp
 # Zone I - Bandeau d'alerte central (temporaire)
 
 # Variables pour affichage éléments
-DEBUG = False #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
+DEBUG = True #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
 SHOW_RETICULE = False # True pour afficher le réticule central (Zone CENTRE)
 SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
@@ -546,7 +546,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
-def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0):
+def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
     h, w = frame.shape[:2]
     # Zone C : haut droite 200x200px
     x = w - 195
@@ -569,9 +569,11 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0):
     # debug fps + latence
     if DEBUG:
         cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+140),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
-        cv2.putText(frame, side, (x, y+160),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
+        cv2.putText(frame, f"LAT:{lat:.0f}ms", (x, y+160),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
+        cv2.putText(frame, side, (x, y+180),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
 
     return frame
 
@@ -715,6 +717,15 @@ def draw_zone_i(frame, message, color=(0, 0, 255)):
     
     return frame
 
+#-----------------------------------------------------------------------------------Affichage time stamp
+def draw_timestamp_debug(frame):
+    h, w = frame.shape[:2]
+    now = datetime.now()
+    ts = f"{now.strftime('%H:%M:%S')}.{now.microsecond // 1000:03d}"
+    cv2.putText(frame, ts, (w//2 - 250, h//2 + 200),
+                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 5)
+    return frame
+
 #----------------------------------------------------------------------------- Instanciations
 cam_left  = CameraThread(CAM_LEFT)
 time.sleep(1)
@@ -846,8 +857,8 @@ while True:
     fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
 
     # Zone C - Données système
-    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "", jetson_temp, cpu_percent)
-    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "", jetson_temp, cpu_percent)
+    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "", jetson_temp, cpu_percent, lat_display)
+    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "", jetson_temp, cpu_percent, lat_display)
     
     # Zone Centre - réticule et horizon artificiel
     fl = draw_zone_centre(fl)
@@ -887,6 +898,11 @@ while True:
         fl = draw_zone_i(fl, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
         fr = draw_zone_i(fr, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
 
+    # Affichage timestamp
+    if DEBUG:
+        fl = draw_timestamp_debug(fl)
+        fr = draw_timestamp_debug(fr)
+
     # Jonction des deux frames cote à cote
     composite = np.hstack([fl, fr])
 
@@ -896,8 +912,19 @@ while True:
     # Affichage de la compisition de frame sur sortie vidéo
     composite = cv2.flip(composite, -1) # Flip horizontal + vertical
     cv2.imshow("IPES HUD V1", composite)
+    # Capture auto après 10 secondes
+    if count == 300:  # ~10sec à 30fps
+        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', composite)
+        print("Capture sauvegardée !")
+
     if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', composite)
+            print(f"Capture sauvegardée")
+            break
 
 print(f"\nFPS pipeline complet : {fps:.1f}")
 cam_left.stop()
