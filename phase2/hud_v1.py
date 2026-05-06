@@ -48,8 +48,8 @@ SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
 SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
-ACTIVATE_OCR = True  # True pour activer le traitement OCR (Zone G)
-SHOW_OCR = True      # True pour afficher le traitement OCR (Zone G)
+ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
+SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
 
 # Chemins 
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
@@ -743,7 +743,6 @@ gps = GPSThread()
 time.sleep(1)
 
 #----------------------------------------------------------------------------- Initialisation
-t0 = time.time()
 count = 0
 fps = 0
 lat_display = 0
@@ -763,6 +762,12 @@ SEUIL_TEMP_JETSON = 75
 jetson_temp = 0.0
 cpu_percent = 0.0
 sys_update = time.time()
+
+minimap_cache = None
+minimap_last_lat = 0
+minimap_last_lon = 0
+
+t0 = time.time()
 
 night_switch_time = 0
 
@@ -849,8 +854,12 @@ while True:
     fr = cv2.flip(fr, -1)
 
     # Zone A - Navigation GPS et minimap
-    fl = draw_zone_a(fl, gps.lat, gps.lon)
-    fr = draw_zone_a(fr, gps.lat, gps.lon)
+    if minimap_cache is None or abs(gps.lat - minimap_last_lat) > 0.0001 or abs(gps.lon - minimap_last_lon) > 0.0001:
+        minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=250)
+        minimap_last_lat = gps.lat
+        minimap_last_lon = gps.lon
+    fl[0:250, 0:250] = minimap_cache
+    fr[0:250, 0:250] = minimap_cache
 
     # Zone B - Boussole et altimètre
     fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
