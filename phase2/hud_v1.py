@@ -6,7 +6,6 @@ from datetime import datetime
 import math
 import os
 from PIL import Image
-import pytesseract
 from adafruit_extended_bus import ExtendedI2C as I2C # Import adafruit après le reset
 from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
@@ -48,8 +47,8 @@ SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
 SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
-ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
-SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
+ACTIVATE_OCR = True  # True pour activer le traitement OCR (Zone G)
+SHOW_OCR = True      # True pour afficher le traitement OCR (Zone G)
 
 # Chemins 
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
@@ -178,41 +177,41 @@ class GPSThread:
 #-----------------------------------------------------------------------------------
 class OCRThread:
     def __init__(self):
+        print("Init OCR...")
+        from onnxtr.models import ocr_predictor
+        self.model = ocr_predictor(
+            det_arch="db_mobilenet_v3_large",
+            reco_arch="crnn_mobilenet_v3_small"
+        )
         self.text = ""
         self.frame_to_process = None
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
-        print("OCR Thread OK")
+        print("OCR OK")
 
     def update(self):
-        config = '--oem 3 --psm 6 -l fra+eng'
         while self.running:
             if ACTIVATE_OCR and self.frame_to_process is not None:
                 try:
-                    # Meilleur prétraitement
-                    #gray = self.frame_to_process
-                    gray = cv2.cvtColor(self.frame_to_process, cv2.COLOR_BGR2GRAY)
-                    # Agrandir l'image x2 aide Tesseract
-                    #gray = cv2.resize(gray, None, fx=2, fy=2)
-                    # Débruitage
-                    #gray = cv2.GaussianBlur(gray, (3,3), 0)
-                    # Seuillage adaptatif plutôt qu'Otsu
-                    #gray = cv2.adaptiveThreshold(gray, 255,
-                    #    cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    #    cv2.THRESH_BINARY, 11, 2)
-                    text = pytesseract.image_to_string(gray, config=config).strip()
+                    from onnxtr.io import DocumentFile
+                    import tempfile, os
+                    # Sauvegarder frame temporairement
+                    tmp = '/tmp/ipes_ocr_frame.png'
+                    cv2.imwrite(tmp, self.frame_to_process)
+                    doc = DocumentFile.from_images(tmp)
+                    result = self.model(doc)
+                    text = result.render().strip()
                     lines = [l for l in text.split('\n') if len(l.strip()) > 2]
                     self.text = ' | '.join(lines[-2:]) if lines else ""
                     self.frame_to_process = None
                 except Exception as e:
-                    pass
+                    print(f"OCR erreur: {e}")
             time.sleep(3.0)
 
     def stop(self):
         self.running = False
-
 #-----------------------------------------------------------------------------------
 #Thread Camera - Capture via camera
 #-----------------------------------------------------------------------------------
