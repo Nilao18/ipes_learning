@@ -13,6 +13,8 @@ from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 import psutil
 import subprocess
+import serial
+import pynmea2
 
 # Zones HUD - 
 #---------------------------
@@ -56,7 +58,7 @@ TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
 CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"  # IMX462
 
 NIGHT_VISION = False  # True = caméra nocturne active
-NIGHT_VISION_AUTO_SWITCH = True  # True = bascule auto après délai
+NIGHT_VISION_AUTO_SWITCH = False  # True = bascule auto après délai
 NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
 
 #------------------------------------------------------------------------------------
@@ -128,6 +130,48 @@ class BMEThread:
 
     def stop(self):
         self.running = False
+
+#-----------------------------------------------------------------------------------
+#Thread GPS - Position en temps réel
+#-----------------------------------------------------------------------------------
+class GPSThread:
+    def __init__(self):
+        print("Init GPS...")
+        self.ser = serial.Serial('/dev/ttyTHS1', 9600, timeout=2)
+        self.lat = 47.3941  # position par défaut Tours
+        self.lon = 0.6848
+        self.alt = 0.0
+        self.speed = 0.0
+        self.satellites = 0
+        self.fix = False
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("GPS OK")
+
+    def update(self):
+        while self.running:
+            try:
+                line = self.ser.readline().decode('ascii', errors='replace').strip()
+                if line.startswith('$GNGGA'):
+                    msg = pynmea2.parse(line)
+                    self.satellites = int(msg.num_sats)
+                    self.fix = int(msg.gps_qual) > 0
+                    if self.fix:
+                        self.alt = float(msg.altitude) if msg.altitude else 0.0
+                elif line.startswith('$GNRMC'):
+                    msg = pynmea2.parse(line)
+                    if msg.status == 'A':
+                        self.lat = msg.latitude
+                        self.lon = msg.longitude
+                        self.speed = float(msg.spd_over_grnd) * 1.852  # kts → km/h
+            except:
+                pass
+
+    def stop(self):
+        self.running = False
+        self.ser.close()
 
 #-----------------------------------------------------------------------------------
 #Thread OCR - Transcription texte et voix / traduction temps réel
@@ -293,47 +337,53 @@ def draw_compass(frame, yaw):
     return frame
 
 #---------------------------------------------------------------------------- Chargement de la minimap
-def get_minimap(lat, lon, zoom=14, size=400):
+def get_minimap(lat, lon, zoom=14, size=250):
     x_tile, y_tile = deg2tile(lat, lon, zoom)
-    
-    # Charger 3x3 tuiles autour de la position
-    canvas = np.zeros((size, size, 3), dtype=np.uint8)
     tile_size = 256
+    
+    # Calcul position exacte en pixels dans la tuile
+    n = 2 ** zoom
+    lat_r = math.radians(lat)
+    px_exact = (lon + 180) / 360 * n * tile_size
+    py_exact = (1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n * tile_size
+    
+    # Décalage par rapport au coin de la tuile centrale
+    px_in_tile = px_exact - x_tile * tile_size
+    py_in_tile = py_exact - y_tile * tile_size
+    
+    canvas = np.zeros((size, size, 3), dtype=np.uint8)
     
     for dx in range(-1, 2):
         for dy in range(-1, 2):
             tx = x_tile + dx
             ty = y_tile + dy
             path = os.path.join(TILES_DIR, str(zoom), str(tx), f"{ty}.png")
-            
             if not os.path.exists(path):
                 continue
-            
             img = np.array(Image.open(path).convert('RGB'))
             img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             
-            # Position sur le canvas
-            cx = size//2 + dx * tile_size
-            cy = size//2 + dy * tile_size
+            # Position de la tuile sur le canvas
+            # Centre du canvas = position exacte GPS
+            cx = size//2 + dx * tile_size - int(px_in_tile)
+            cy = size//2 + dy * tile_size - int(py_in_tile)
             
-            # Clip et colle
-            x1 = max(0, cx - tile_size//2)
-            y1 = max(0, cy - tile_size//2)
-            x2 = min(size, cx + tile_size//2)
-            y2 = min(size, cy + tile_size//2)
+            x1 = max(0, cx)
+            y1 = max(0, cy)
+            x2 = min(size, cx + tile_size)
+            y2 = min(size, cy + tile_size)
             
-            sx1 = max(0, tile_size//2 - cx)
-            sy1 = max(0, tile_size//2 - cy)
+            sx1 = max(0, -cx)
+            sy1 = max(0, -cy)
             
             if x2 > x1 and y2 > y1:
                 canvas[y1:y2, x1:x2] = img[sy1:sy1+(y2-y1), sx1:sx1+(x2-x1)]
     
-    # Marqueur position (triangle)
+    # Marqueur position — maintenant vraiment au centre
     cv2.circle(canvas, (size//2, size//2), 6, (0, 0, 255), -1)
     cv2.circle(canvas, (size//2, size//2), 8, (255, 255, 255), 2)
     
     return canvas
-
 #----------------------------------- Conversion de le position en coordonnées GPS vers position sur tuille minimap
 def deg2tile(lat, lon, zoom):
     lat_r = math.radians(lat)
@@ -661,6 +711,8 @@ bme = BMEThread()
 time.sleep(0.5)
 ocr = OCRThread()
 time.sleep(0.5)
+gps = GPSThread()
+time.sleep(1)
 
 #----------------------------------------------------------------------------- Initialisation
 t0 = time.time()
@@ -769,8 +821,8 @@ while True:
     fr = cv2.flip(fr, -1)
 
     # Zone A - Navigation GPS et minimap
-    fl = draw_zone_a(fl, 47.3941, 0.6848)
-    fr = draw_zone_a(fr, 47.3941, 0.6848)
+    fl = draw_zone_a(fl, gps.lat, gps.lon)
+    fr = draw_zone_a(fr, gps.lat, gps.lon)
 
     # Zone B - Boussole et altimètre
     fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
