@@ -14,6 +14,7 @@ import psutil
 import subprocess
 import serial
 import pynmea2
+import multiprocessing as mp
 
 # Zones HUD - 
 #---------------------------
@@ -175,43 +176,34 @@ class GPSThread:
 #-----------------------------------------------------------------------------------
 #Thread OCR - Transcription texte et voix / traduction temps réel
 #-----------------------------------------------------------------------------------
-class OCRThread:
+class OCRProcess:
     def __init__(self):
         print("Init OCR...")
-        from onnxtr.models import ocr_predictor
-        self.model = ocr_predictor(
-            det_arch="db_mobilenet_v3_large",
-            reco_arch="crnn_mobilenet_v3_small"
+        self.input_queue = mp.Queue(maxsize=1)
+        self.output_queue = mp.Queue(maxsize=1)
+        self.process = mp.Process(
+            target=ocr_worker,
+            args=(self.input_queue, self.output_queue),
+            daemon=True
         )
+        self.process.start()
         self.text = ""
-        self.frame_to_process = None
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
+        self.busy = False
         print("OCR OK")
 
-    def update(self):
-        while self.running:
-            if ACTIVATE_OCR and self.frame_to_process is not None:
-                try:
-                    from onnxtr.io import DocumentFile
-                    import tempfile, os
-                    # Sauvegarder frame temporairement
-                    tmp = '/tmp/ipes_ocr_frame.png'
-                    cv2.imwrite(tmp, self.frame_to_process)
-                    doc = DocumentFile.from_images(tmp)
-                    result = self.model(doc)
-                    text = result.render().strip()
-                    lines = [l for l in text.split('\n') if len(l.strip()) > 2]
-                    self.text = ' | '.join(lines[-2:]) if lines else ""
-                    self.frame_to_process = None
-                except Exception as e:
-                    print(f"OCR erreur: {e}")
-            time.sleep(3.0)
+    def submit(self, frame):
+        if not self.busy and not self.input_queue.full():
+            self.input_queue.put(frame.copy())
+            self.busy = True
+
+    def poll(self):
+        if self.busy and not self.output_queue.empty():
+            self.text = self.output_queue.get()
+            self.busy = False
 
     def stop(self):
-        self.running = False
+        self.input_queue.put(None)
+        self.process.join(timeout=3)
 #-----------------------------------------------------------------------------------
 #Thread Camera - Capture via camera
 #-----------------------------------------------------------------------------------
@@ -239,6 +231,32 @@ class CameraThread:
     def stop(self):
         self.running = False
         self.cap.release()
+
+# -------------------------------------------------------------------------------Detection de texte
+def ocr_worker(input_queue, output_queue):
+    """Processus séparé pour l'OCR - contourne le GIL"""
+    from onnxtr.models import ocr_predictor
+    from onnxtr.io import DocumentFile
+    import cv2
+    model = ocr_predictor(
+        det_arch="db_mobilenet_v3_large",
+        reco_arch="crnn_mobilenet_v3_small"
+    )
+    while True:
+        frame = input_queue.get()
+        if frame is None:
+            break
+        try:
+            tmp = '/tmp/ipes_ocr_frame.png'
+            cv2.imwrite(tmp, frame)
+            doc = DocumentFile.from_images(tmp)
+            result = model(doc)
+            text = result.render().strip()
+            lines = [l for l in text.split('\n') if len(l.strip()) > 2]
+            output_queue.put(' | '.join(lines[-2:]) if lines else "")
+        except Exception as e:
+            output_queue.put("")
+
 
 # -------------------------------------------------------------------------------Detection de mouvements latérale
 def detect_motion_zone(prev_gray, gray, seuil=10):
@@ -708,7 +726,7 @@ imu = IMUThread()
 time.sleep(0.5)
 bme = BMEThread()
 time.sleep(0.5)
-ocr = OCRThread()
+ocr = OCRProcess()
 time.sleep(0.5)
 gps = GPSThread()
 time.sleep(1)
@@ -841,13 +859,14 @@ while True:
     fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION)
     fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION)
 
-    # Zone G - Envoyer frame à l'OCR toutes les 90 frames (~3sec)
+    # Zone G - OCR
     if ACTIVATE_OCR and count % 150 == 0:
-        ocr.frame_to_process = cv2.flip(cam_left.frame.copy(), -1)
+        ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
+    ocr.poll()
     if SHOW_OCR:
         fl = draw_zone_g(fl, ocr.text)
         fr = draw_zone_g(fr, ocr.text)
-
+    
     # Zone H - Données environnement
     fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas, bme.pressure)
     fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas, bme.pressure)
