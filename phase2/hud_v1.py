@@ -15,7 +15,7 @@ import subprocess
 import serial
 import pynmea2
 import multiprocessing as mp
-
+import struct
 # Zones HUD - 
 #---------------------------
 #    A |      B     |  C   |
@@ -42,7 +42,7 @@ import multiprocessing as mp
 # Zone I - Bandeau d'alerte central (temporaire)
 
 # Variables pour affichage éléments
-DEBUG = True #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
+DEBUG = False #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
 SHOW_RETICULE = False # True pour afficher le réticule central (Zone CENTRE)
 SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
@@ -52,8 +52,8 @@ ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
 SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
 
 # Chemins 
-CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.1:1.0-video-index0"
-CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
+CAM_RIGHT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
+CAM_LEFT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"
 TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
 CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"  # IMX462
 
@@ -167,6 +167,79 @@ class GPSThread:
                         self.lon = msg.longitude
                         self.speed = float(msg.spd_over_grnd) * 1.852  # kts → km/h
             except:
+                pass
+
+    def stop(self):
+        self.running = False
+        self.ser.close()
+
+#-----------------------------------------------------------------------------------
+#Thread HLK-LD2450 - Radar 24ghz
+#-----------------------------------------------------------------------------------
+class RadarThread:
+    def __init__(self):
+        print("Init Radar...")
+        self.ser = serial.Serial('/dev/ttyUSB0', 256000, timeout=1)
+        self.targets = []
+        self._dist_history = []
+        self.smooth_dist = 0.0
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("Radar OK")
+
+    def _decode_coord(self, raw):
+        sign = -1 if (raw & 0x8000) else 1
+        return sign * (raw & 0x7FFF) / 1000.0
+
+    def update(self):
+        buf = bytearray()
+        while self.running:
+            try:
+                buf += self.ser.read(64)
+                start = -1
+                for i in range(len(buf) - 1):
+                    if buf[i] == 0xAA and buf[i+1] == 0xFF:
+                        start = i
+                        break
+                if start == -1:
+                    if len(buf) > 512:
+                        buf = bytearray()
+                    continue
+                end = -1
+                for i in range(start, len(buf) - 1):
+                    if buf[i] == 0x55 and buf[i+1] == 0xCC:
+                        end = i + 2
+                        break
+                if end == -1:
+                    continue
+                frame = buf[start:end]
+                buf = buf[end:]
+                if len(frame) < 30:
+                    continue
+                targets = []
+                for t in range(3):
+                    offset = 4 + t * 8
+                    if offset + 8 > len(frame):
+                        break
+                    x = self._decode_coord(struct.unpack_from('<H', frame, offset)[0])
+                    y = self._decode_coord(struct.unpack_from('<H', frame, offset+2)[0])
+                    spd = self._decode_coord(struct.unpack_from('<H', frame, offset+4)[0])
+                    if x != 0 or y != 0:
+                        dist = (x**2 + y**2) ** 0.5
+                        if 0.1 < dist < 6.0:  # ignorer < 10cm et > 6m
+                            targets.append({'x': x, 'y': y, 'speed': spd})
+                self.targets = targets
+                if targets:
+                    closest = min(targets, key=lambda t: t['x']**2 + t['y']**2)
+                    dist = (closest['x']**2 + closest['y']**2) ** 0.5
+                    self._dist_history.append(dist)
+                    if len(self._dist_history) > 10:
+                        self._dist_history.pop(0)
+                    self.smooth_dist = sum(self._dist_history) / len(self._dist_history)
+            except Exception as e:
+                print(f"Radar erreur: {e}")
                 pass
 
     def stop(self):
@@ -604,16 +677,21 @@ def draw_zone_centre(frame):
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone E
-def draw_zone_e(frame, alert_active):
-    if not alert_active:
-        return frame
+def draw_zone_e(frame, alert_active, radar_targets=None):
     h, w = frame.shape[:2]
     cy = h // 2
-    # Flèche principale
-    cv2.arrowedLine(frame, (w - 190, cy), (w - 30, cy), (0, 0, 255), 8, tipLength=0.4)
-    # Texte alerte
-    cv2.putText(frame, "MVT", (w - 70, cy - 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+    # Flèche alerte mouvement
+    if alert_active:
+        cv2.arrowedLine(frame, (w-190, cy), (w-30, cy), (0,0,255), 8, tipLength=0.4)
+        cv2.putText(frame, "MVT", (w-70, cy-30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
+
+    # Cibles radar
+    if radar_targets:
+        cv2.putText(frame, "PRESENCE DETECTEE",
+                    (w-220, cy + 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone G
@@ -741,7 +819,8 @@ ocr = OCRProcess()
 time.sleep(0.5)
 gps = GPSThread()
 time.sleep(1)
-
+radar = RadarThread()
+time.sleep(0.5)
 #----------------------------------------------------------------------------- Initialisation
 count = 0
 fps = 0
@@ -876,8 +955,8 @@ while True:
     # Zone D/E - Flèches d'alerte
     fl = draw_zone_d(fl, now_t - alert_l_time < ALERT_DURATION)
     fr = draw_zone_d(fr, now_t - alert_l_time < ALERT_DURATION)
-    fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION)
-    fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION)
+    fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION, radar.targets)
+    fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION, radar.targets)
 
     # Zone G - OCR
     if ACTIVATE_OCR and count % 150 == 0:
@@ -922,7 +1001,7 @@ while True:
     composite = cv2.flip(composite, -1) # Flip horizontal + vertical
     cv2.imshow("IPES HUD V1", composite)
     # Capture auto après 10 secondes
-    if count == 300:  # ~10sec à 30fps
+    if count == 300 and DEBUG:  # ~10sec à 30fps
         cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', composite)
         print("Capture sauvegardée !")
 
