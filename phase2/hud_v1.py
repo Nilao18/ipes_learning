@@ -67,7 +67,7 @@ NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
 class IMUThread:
     def __init__(self):
         print("Init IMU...")
-        i2c = I2C(7)
+        i2c = I2C(1)
         print("I2C OK")
         self.bno = BNO08X_I2C(i2c, address=0x4A)
         print("BNO08X OK")
@@ -104,7 +104,7 @@ class IMUThread:
 class BMEThread:
     def __init__(self):
         print("Init BME688...")
-        i2c = I2C(1)
+        i2c = I2C(7)
         self.bme = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77)
         self.bme.sea_level_pressure = 1013.25
         self.temperature = 0.0
