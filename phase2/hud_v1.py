@@ -48,14 +48,15 @@ SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
 SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
-ACTIVATE_OCR = False  # True pour activer le traitement OCR (Zone G)
-SHOW_OCR = False      # True pour afficher le traitement OCR (Zone G)
+ACTIVATE_OCR = True  # True pour activer le traitement OCR (Zone G)
+SHOW_OCR = True      # True pour afficher le traitement OCR (Zone G)
 
 # Chemins 
-CAM_RIGHT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.2:1.0-video-index0"
-CAM_LEFT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"
 TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
-CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.4:1.0-video-index0"  # IMX462
+
+CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.1:1.0-video-index0"
+CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.4:1.0-video-index0"
+CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
 
 NIGHT_VISION = False  # True = caméra nocturne active
 NIGHT_VISION_AUTO_SWITCH = False  # True = bascule auto après délai
