@@ -11,6 +11,7 @@ from adafruit_bno08x.i2c import BNO08X_I2C
 from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 import psutil
+from person_detect import PersonDetector
 import subprocess
 import serial
 import pynmea2
@@ -913,6 +914,11 @@ gps = GPSThread()
 time.sleep(1)
 radar = RadarThread()
 kb = KeyboardThread()
+print("Init detection personnes...")
+detector = PersonDetector()
+detect_last = 0.0
+detect_side = 'L'
+print("Detection OK")
 time.sleep(0.5)
 time.sleep(0.5)
 #----------------------------------------------------------------------------- Initialisation
@@ -975,6 +981,23 @@ while True:
 
     # Flux OV9281 pour detection de mouvement (independant de l affichage)
     now_t = time.time()
+
+    # Detection de personnes - alternance gauche/droite, 1 Hz
+    detector.poll()
+    if not NIGHT_VISION and time.time() - detect_last > 1.0:
+        cam = cam_left if detect_side == 'L' else cam_right
+        if cam is not None and cam.frame is not None:
+            if detector.submit(cam.frame, detect_side):
+                detect_last = time.time()
+                detect_side = "R" if detect_side == "L" else "L"
+
+    nL, nR = detector.compte('L'), detector.compte('R')
+    if count % 60 == 0 and (nL or nR):
+        print("PERSONNES  G:%d  D:%d  (%.0f ms)" % (nL, nR, detector.latence))
+    if nL > 0:
+        alert_l_time = now_t
+    if nR > 0:
+        alert_r_time = now_t
     motion_ok = (not NIGHT_VISION) and cam_left is not None and cam_left.frame is not None and cam_right is not None and cam_right.frame is not None
     if motion_ok:
         fl = cam_left.frame.copy()
