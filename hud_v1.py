@@ -301,13 +301,14 @@ class OCRProcess:
 #Thread Camera - Capture via camera
 #-----------------------------------------------------------------------------------
 class CameraThread:
-    def __init__(self, device, width=1280, height=720):
+    def __init__(self, device, width=1280, height=720, period=0.0):
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
         self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.period = period
         self.frame = None
         self.timestamp = None
         self.running = True
@@ -321,6 +322,8 @@ class CameraThread:
             if ret:
                 self.frame = frame
                 self.timestamp = time.time()
+            if self.period > 0:
+                time.sleep(self.period)
 
     def stop(self):
         self.running = False
@@ -894,9 +897,9 @@ def draw_timestamp_debug(frame):
     return frame
 
 #----------------------------------------------------------------------------- Instanciations
-cam_left  = CameraThread(CAM_LEFT)
+cam_left  = CameraThread(CAM_LEFT, period=1.0)
 time.sleep(1)
-cam_right = CameraThread(CAM_RIGHT)
+cam_right = CameraThread(CAM_RIGHT, period=1.0)
 time.sleep(1)
 cam_night = None
 time.sleep(1)
@@ -972,7 +975,7 @@ while True:
 
     # Flux OV9281 pour detection de mouvement (independant de l affichage)
     now_t = time.time()
-    motion_ok = (not NIGHT_VISION) and cam_left.frame is not None and cam_right.frame is not None
+    motion_ok = (not NIGHT_VISION) and cam_left is not None and cam_left.frame is not None and cam_right is not None and cam_right.frame is not None
     if motion_ok:
         fl = cam_left.frame.copy()
         fr = cam_right.frame.copy()
