@@ -43,7 +43,7 @@ import struct
 
 # Variables pour affichage éléments
 DEBUG = False #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
-SHOW_RETICULE = False # True pour afficher le réticule central (Zone CENTRE)
+SHOW_RETICULE = True # True pour afficher le réticule central (Zone CENTRE)
 SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
 SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
@@ -61,6 +61,11 @@ CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
 NIGHT_VISION = False  # True = caméra nocturne active
 NIGHT_VISION_AUTO_SWITCH = False  # True = bascule auto après délai
 NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
+
+# Marges de securite affichage Xreal (pourcentage)
+MARGE_G = 0.10   # marge gauche
+MARGE_D = 0.05   # marge droite
+MARGE_Y = 0.05
 
 #------------------------------------------------------------------------------------
 # Thread IMU (BNO085)- Inertial Mesurement Unit / Centrale Inertielle : Pitch, Yaw, Roll
@@ -404,7 +409,7 @@ def draw_compass(frame, yaw):
     h, w = frame.shape[:2]
     cx = w // 2
     compass_y = 40
-    compass_w = w // 2 # moitié de la largeur au lieu de w - 100
+    compass_w = w // 3 + 50
     deg_per_px = compass_w / 60.0  # 60° visibles au total
 
     color_small = (0, 200, 0)
@@ -527,7 +532,7 @@ def draw_zone_a(frame, lat, lon, zoom=14):
 def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     h, w = frame.shape[:2]
     cx = w // 2
-    compass_w = w // 2
+    compass_w = w // 3 + 50
 
     # Fond semi-transparent derrière la zone boussole + altimètres
     overlay = frame.copy()
@@ -587,14 +592,14 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
         #        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
     
         # Graduation verticale altitude — gauche (pieds)
-        grad_h = 200  # hauteur totale de la graduation
+        grad_h = 175  # hauteur totale de la graduation
         grad_x_l = compass_left - 5
         grad_y_center = 120  # centre vertical
         cv2.line(frame, (grad_x_l, grad_y_center - grad_h//2),
              (grad_x_l, grad_y_center + grad_h//2), color_dim, 2)
 
         for i in range(-5, 6):
-            y = grad_y_center + i * 20
+            y = grad_y_center + i * 17
 
             if i == 0:
                 # Valeur réelle — trait épais + texte blanc grand
@@ -616,7 +621,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
              (grad_x_r, grad_y_center + grad_h//2), color_dim, 2)
 
         for i in range(-5, 6):
-            y = grad_y_center + i * 20
+            y = grad_y_center + i * 17
             if i == 0:
                 # Valeur réelle — trait épais + texte blanc grand
                 cv2.line(frame, (grad_x_r + 12, y), (grad_x_r, y), color_large, 3)
@@ -647,7 +652,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
     h, w = frame.shape[:2]
     # Zone C : haut droite 200x200px
-    x = 10
+    x = 110
     y = 10
     color_dim = (0, 150, 0)
     now = datetime.now()
@@ -745,7 +750,7 @@ def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
     
     # Zone H : bas droite 200x200px
     x = w - 200
-    y = h - 320
+    y = h - 200
     
     color = (0, 255, 0)      # vert nominal
     color_dim = (0, 150, 0)
@@ -945,14 +950,18 @@ while True:
                     alert_r_time = now_t
             prev_gray_r = gray_r.copy()
 
-    # Fond : vidéo nocturne plein écran, ou noir pour transparence
+    # Dimensions zone utile (marges de securite Xreal)
+    HUD_W = int(1920 * (1 - MARGE_G - MARGE_D))
+    HUD_H = int(1080 * (1 - 2 * MARGE_Y))
+
+    # Fond : video nocturne, ou noir pour transparence
     if NIGHT_VISION and cam_night is not None and cam_night.frame is not None:
-        hud = cv2.resize(cam_night.frame, (1920, 1080))
+        hud = cv2.resize(cam_night.frame, (HUD_W, HUD_H))
         if len(hud.shape) == 2:
             hud = cv2.cvtColor(hud, cv2.COLOR_GRAY2BGR)
         hud = cv2.flip(hud, -1)
     else:
-        hud = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
     # Zone A - Données système
     hud = draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display)
@@ -965,7 +974,7 @@ while True:
         minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=390)
         minimap_last_lat = gps.lat
         minimap_last_lon = gps.lon
-    hud[0:390, 1920-390:1920] = minimap_cache
+    hud[60:450, HUD_W-390:HUD_W] = minimap_cache
 
     # Zone Centre - réticule et horizon artificiel
     hud = draw_zone_centre(hud)
@@ -999,7 +1008,12 @@ while True:
     count += 1
     fps = count / (time.time() - t0)
 
-    cv2.imshow("IPES HUD V1", hud)
+    # Composition finale : HUD centre sur fond noir 1920x1080
+    ecran = np.zeros((1080, 1920, 3), dtype=np.uint8)
+    ox = int(1920 * MARGE_G)
+    oy = (1080 - HUD_H) // 2
+    ecran[oy:oy+HUD_H, ox:ox+HUD_W] = hud
+    cv2.imshow("IPES HUD V1", ecran)
 
     # Capture auto après 10 secondes
     if count == 300 and DEBUG:  # ~10sec à 30fps
