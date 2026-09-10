@@ -758,6 +758,19 @@ def draw_poi(frame, yaw, pitch):
         cv2.fillPoly(frame, [pts], POI_COLOR)
     return frame
 
+def draw_vignettes(frame, det):
+    """Imagettes des personnes detectees, cote correspondant."""
+    h, w = frame.shape[:2]
+    vy = h // 2 - 80
+    for cote, vx in (('L', 15), ('R', w - 135)):
+        v = det.vignette(cote)
+        if v is None:
+            continue
+        frame[vy:vy + 160, vx:vx + 120] = v
+        cv2.rectangle(frame, (vx - 2, vy - 2), (vx + 122, vy + 162),
+                      (0, 165, 255), 2)
+    return frame
+
 def draw_zone_centre(frame):
     if not SHOW_RETICULE or MODE == "MINIMAL":
         return frame
@@ -780,11 +793,16 @@ def draw_zone_e(frame, alert_active, radar_targets=None):
         cv2.putText(frame, "PERS", (w-70, cy-30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
 
-    # Cibles radar
+    # Cibles radar - distance de la plus proche, au-dela de 50 cm
     if radar_targets:
-        cv2.putText(frame, "PRESENCE DETECTEE",
-                    (w-220, cy + 50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        dists = [math.hypot(t["x"], t["y"]) for t in radar_targets]
+        dists = [d for d in dists if d > 0.5]
+        if dists:
+            d = min(dists)
+            couleur = (0, 0, 255) if d < 2.0 else (0, 165, 255)
+            cv2.putText(frame, "RADAR %.1fm" % d,
+                        (w-250, cy + 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone G
@@ -1035,6 +1053,7 @@ while True:
         # Zone D/E - Fleches d alerte
         hud = draw_zone_d(hud, now_t - alert_l_time < ALERT_DURATION)
         hud = draw_zone_e(hud, now_t - alert_r_time < ALERT_DURATION, radar.targets)
+        hud = draw_vignettes(hud, detector)
 
         if MODE != "MINIMAL":
             # Zone G - OCR
@@ -1067,6 +1086,13 @@ while True:
     ox = int(1920 * MARGE_G)
     oy = (1080 - HUD_H) // 2
     ecran[oy:oy+HUD_H, ox:ox+HUD_W] = hud
+
+    # Barres laterales d alerte dans les marges (hors zone utile)
+    if MODE != "OFF":
+        if now_t - alert_l_time < ALERT_DURATION:
+            cv2.rectangle(ecran, (0, 0), (12, 1080), (0, 165, 255), -1)
+        if now_t - alert_r_time < ALERT_DURATION:
+            cv2.rectangle(ecran, (1908, 0), (1920, 1080), (0, 165, 255), -1)
     cv2.imshow("IPES HUD V1", ecran)
 
     # Capture auto après 10 secondes

@@ -74,9 +74,29 @@ def _postprocess(sortie, r, dx, dy, w, h):
     return res
 
 
+VIGNETTE_W = 120
+VIGNETTE_H = 160
+
+
+def _crop(frame, dets):
+    """Decoupe la detection la plus confiante et la met au format vignette."""
+    import cv2
+    x, y, bw, bh, _ = max(dets, key=lambda d: d[4])
+    h, w = frame.shape[:2]
+    marge = int(bw * 0.15)
+    x1 = max(0, x - marge)
+    y1 = max(0, y - marge)
+    x2 = min(w, x + bw + marge)
+    y2 = min(h, y + bh + marge)
+    if x2 - x1 < 10 or y2 - y1 < 10:
+        return None
+    return cv2.resize(frame[y1:y2, x1:x2], (VIGNETTE_W, VIGNETTE_H))
+
+
 def _worker(entree, sortie):
     """Processus dedie : charge le modele puis boucle sur la queue."""
     import onnxruntime as ort
+    import cv2
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 2
     session = ort.InferenceSession(
@@ -93,10 +113,11 @@ def _worker(entree, sortie):
             t0 = time.time()
             out = session.run(None, {nom_entree: x})
             dets = _postprocess(out, r, dx, dy, w, h)
-            sortie.put((cote, dets, (time.time() - t0) * 1000))
+            vignette = _crop(cv2.flip(frame, -1), dets) if dets else None
+            sortie.put((cote, dets, (time.time() - t0) * 1000, vignette))
         except Exception as e:
             print("WORKER ERREUR:", e, flush=True)
-            sortie.put((cote, [], 0.0))
+            sortie.put((cote, [], 0.0, None))
 
 
 class PersonDetector:
@@ -118,6 +139,7 @@ class PersonDetector:
             target=_worker, args=(self.entree, self.sortie), daemon=True)
         self.proc.start()
         self.detections = {'L': [], 'R': []}
+        self.vignettes = {'L': None, 'R': None}
         self.horodatage = {'L': 0.0, 'R': 0.0}
         self.latence = 0.0
         self.en_cours = False
@@ -136,8 +158,9 @@ class PersonDetector:
     def poll(self):
         """Recupere les resultats disponibles sans bloquer."""
         while not self.sortie.empty():
-            cote, dets, ms = self.sortie.get()
+            cote, dets, ms, vign = self.sortie.get()
             self.detections[cote] = dets
+            self.vignettes[cote] = vign
             self.horodatage[cote] = time.time()
             self.latence = ms
             self.en_cours = False
@@ -147,6 +170,12 @@ class PersonDetector:
         if time.time() - self.horodatage[cote] > duree:
             return 0
         return len(self.detections[cote])
+
+    def vignette(self, cote, duree=3.0):
+        """Imagette de la derniere personne detectee, ou None."""
+        if time.time() - self.horodatage[cote] > duree:
+            return None
+        return self.vignettes[cote]
 
     def stop(self):
         try:
