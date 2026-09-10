@@ -1,927 +1,38 @@
+#-----------------------------------------------------------------------------------
+# IPES HUD V1 - Boucle principale
+#-----------------------------------------------------------------------------------
+# Architecture :
+#   hud_config.py   constantes et etat partage (MODE, poi, NIGHT_VISION)
+#   sensors.py      threads IMU, BME688, GPS, radar, cameras, clavier
+#   hud_draw.py     rendu des zones, boussole, minimap, POI
+#   ocr_process.py  OCR en processus separe
+#   person_detect.py detection de personnes YOLOv8n-person en processus separe
+#
+# Touches (terminal SSH, valider par Entree) :
+#   q  quitter          n  bascule vision nocturne     s  capture ecran
+#   1-4 mode direct     m  mode suivant
+#   v  verrouiller POI  c  effacer POI
+import time
+
 import cv2
 import numpy as np
-import threading
-import time
-from datetime import datetime
-import math
-import os
-from PIL import Image
-from adafruit_extended_bus import ExtendedI2C as I2C # Import adafruit après le reset
-from adafruit_bno08x.i2c import BNO08X_I2C
-from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
-import adafruit_bme680
 import psutil
+
+import hud_config as cfg
+from sensors import (IMUThread, BMEThread, GPSThread, RadarThread,
+                     CameraThread, KeyboardThread)
+from ocr_process import OCRProcess
 from person_detect import PersonDetector
-import subprocess
-import serial
-import pynmea2
-import multiprocessing as mp
-import struct
-# Zones HUD - 
-#---------------------------
-#    A |      B     |  C   |
-#      |            |      |
-#------|------------|------|
-#  D   |   CENTRE   |  E   |
-#==========================|
-#             I            |
-#==========================|
-#  D   |   CENTRE   |  E   |
-#------|------------|------|
-#  F   |      G     |  H   |
-#      |            |      |
-#---------------------------
+import hud_draw as draw
 
-# Zone A - Infos système (heure/date/FPS/latence/écran droit ou gauche)
-# Zone B - Boussole + Altimètre
-# Zone C - Navigation GPS + minimap
-# Zone D - Alerte mouvement coté gauche
-# Zone E - Alerte mouvement coté droit
-# Zone F - Biodata (Fréquence cardiaque/SPO2/Temperature corporelle)
-# Zone G - Transcription et traduction en temps réel (texte + voix)
-# Zone H - Infos environnement (Température/humidité/présence gaz)
-# Zone I - Bandeau d'alerte central (temporaire)
-
-# Variables pour affichage éléments
-DEBUG = False #True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B) + Ecran droit ou gauche (Zone C)
-SHOW_RETICULE = True # True pour afficher le réticule central (Zone CENTRE)
-SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
-SHOW_COMPASS = True # True pour afficher la boussole (Zone B)
-SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B
-SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
-ACTIVATE_OCR = True  # True pour activer le traitement OCR (Zone G)
-SHOW_OCR = True      # True pour afficher le traitement OCR (Zone G)
-
-# Chemins 
-TILES_DIR = "/home/quentin/ipes/maps/tours" # Chemin vers répertoir minimap
-
-CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.1:1.0-video-index0"
-CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.4:1.0-video-index0"
-CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
-
-NIGHT_VISION = False  # True = caméra nocturne active
-NIGHT_VISION_AUTO_SWITCH = False  # True = bascule auto après délai
-NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
-
-# Marges de securite affichage Xreal (pourcentage)
-MARGE_G = 0.10   # marge gauche
-MARGE_D = 0.05   # marge droite
-
-# Modes HUD
-MODES = ["NORMAL", "NAV", "MINIMAL", "OFF"]
-MODE = "NORMAL"
-MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}
-COMPASS_DIV = {"NORMAL": 2, "NAV": 3}
-
-# Verrouillage POI
-FOV_H = 40.0
-FOV_V = 22.6
-PX_PER_DEG_X = 1920 / FOV_H
-PX_PER_DEG_Y = 1080 / FOV_V
-POI_COLOR = (0, 200, 255)
-poi = None
-MARGE_Y = 0.05
-
-#------------------------------------------------------------------------------------
-# Thread IMU (BNO085)- Inertial Mesurement Unit / Centrale Inertielle : Pitch, Yaw, Roll
-#------------------------------------------------------------------------------------
-class IMUThread:
-    def __init__(self):
-        print("Init IMU...")
-        i2c = I2C(1)
-        print("I2C OK")
-        self.bno = BNO08X_I2C(i2c, address=0x4A)
-        print("BNO08X OK")
-        self.bno.soft_reset()
-        time.sleep(1)
-        self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
-        print("Feature OK")
-        self.roll = 0.0
-        self.pitch = 0.0
-        self.yaw = 0.0
-        print("Pitch/Yaw/Roll OK")
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-        print("Thread Start OK")
-
-    def update(self):
-        while self.running:
-            quat = self.bno.quaternion
-            if quat:
-                qi, qj, qk, real = quat
-                self.roll  = math.degrees(math.atan2(2*(real*qi + qj*qk), 1 - 2*(qi*qi + qj*qj)))
-                self.pitch = math.degrees(math.asin(max(-1, min(1, 2*(real*qj - qk*qi)))))
-                self.yaw   = math.degrees(math.atan2(2*(real*qk + qi*qj), 1 - 2*(qj*qj + qk*qk)))
-            time.sleep(0.02)  # 50Hz
-
-    def stop(self):
-        self.running = False
-
-#-----------------------------------------------------------------------------------
-#Thread BME (BME688) - Capteur de température, humidité et gaz
-#-----------------------------------------------------------------------------------
-class BMEThread:
-    def __init__(self):
-        print("Init BME688...")
-        i2c = I2C(7)
-        self.bme = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77)
-        self.bme.sea_level_pressure = 1013.25
-        self.temperature = 0.0
-        self.humidity = 0.0
-        self.pressure = 0.0
-        self.gas = 0
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-        print("BME688 OK")
-
-    def update(self):
-        while self.running:
-            try:
-                self.temperature = self.bme.temperature
-                self.humidity = self.bme.humidity
-                self.pressure = self.bme.pressure
-                self.gas = self.bme.gas
-            except Exception as e:
-                print(f"BME erreur: {e}")
-            time.sleep(2)
-
-    def stop(self):
-        self.running = False
-
-#-----------------------------------------------------------------------------------
-#Thread GPS - Position en temps réel
-#-----------------------------------------------------------------------------------
-class GPSThread:
-    def __init__(self):
-        print("Init GPS...")
-        self.ser = serial.Serial('/dev/ttyTHS1', 9600, timeout=2)
-        self.lat = 47.3941  # position par défaut Tours
-        self.lon = 0.6848
-        self.alt = 0.0
-        self.speed = 0.0
-        self.satellites = 0
-        self.fix = False
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-        print("GPS OK")
-
-    def update(self):
-        while self.running:
-            try:
-                line = self.ser.readline().decode('ascii', errors='replace').strip()
-                if line.startswith('$GNGGA'):
-                    msg = pynmea2.parse(line)
-                    self.satellites = int(msg.num_sats)
-                    self.fix = int(msg.gps_qual) > 0
-                    if self.fix:
-                        self.alt = float(msg.altitude) if msg.altitude else 0.0
-                elif line.startswith('$GNRMC'):
-                    msg = pynmea2.parse(line)
-                    if msg.status == 'A':
-                        self.lat = msg.latitude
-                        self.lon = msg.longitude
-                        self.speed = float(msg.spd_over_grnd) * 1.852  # kts → km/h
-            except:
-                pass
-
-    def stop(self):
-        self.running = False
-        self.ser.close()
-
-#-----------------------------------------------------------------------------------
-#Thread HLK-LD2450 - Radar 24ghz
-#-----------------------------------------------------------------------------------
-class RadarThread:
-    def __init__(self):
-        print("Init Radar...")
-        self.ser = serial.Serial('/dev/ttyUSB0', 256000, timeout=1)
-        self.targets = []
-        self._dist_history = []
-        self.smooth_dist = 0.0
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-        print("Radar OK")
-
-    def _decode_coord(self, raw):
-        sign = -1 if (raw & 0x8000) else 1
-        return sign * (raw & 0x7FFF) / 1000.0
-
-    def update(self):
-        buf = bytearray()
-        while self.running:
-            try:
-                buf += self.ser.read(64)
-                start = -1
-                for i in range(len(buf) - 1):
-                    if buf[i] == 0xAA and buf[i+1] == 0xFF:
-                        start = i
-                        break
-                if start == -1:
-                    if len(buf) > 512:
-                        buf = bytearray()
-                    continue
-                end = -1
-                for i in range(start, len(buf) - 1):
-                    if buf[i] == 0x55 and buf[i+1] == 0xCC:
-                        end = i + 2
-                        break
-                if end == -1:
-                    continue
-                frame = buf[start:end]
-                buf = buf[end:]
-                if len(frame) < 30:
-                    continue
-                targets = []
-                for t in range(3):
-                    offset = 4 + t * 8
-                    if offset + 8 > len(frame):
-                        break
-                    x = self._decode_coord(struct.unpack_from('<H', frame, offset)[0])
-                    y = self._decode_coord(struct.unpack_from('<H', frame, offset+2)[0])
-                    spd = self._decode_coord(struct.unpack_from('<H', frame, offset+4)[0])
-                    if x != 0 or y != 0:
-                        dist = (x**2 + y**2) ** 0.5
-                        if 0.1 < dist < 6.0:  # ignorer < 10cm et > 6m
-                            targets.append({'x': x, 'y': y, 'speed': spd})
-                self.targets = targets
-                if targets:
-                    closest = min(targets, key=lambda t: t['x']**2 + t['y']**2)
-                    dist = (closest['x']**2 + closest['y']**2) ** 0.5
-                    self._dist_history.append(dist)
-                    if len(self._dist_history) > 10:
-                        self._dist_history.pop(0)
-                    self.smooth_dist = sum(self._dist_history) / len(self._dist_history)
-            except Exception as e:
-                print(f"Radar erreur: {e}")
-                pass
-
-    def stop(self):
-        self.running = False
-        self.ser.close()
-
-#-----------------------------------------------------------------------------------
-#Thread OCR - Transcription texte et voix / traduction temps réel
-#-----------------------------------------------------------------------------------
-class OCRProcess:
-    def __init__(self):
-        print("Init OCR...")
-        self.input_queue = mp.Queue(maxsize=1)
-        self.output_queue = mp.Queue(maxsize=1)
-        self.process = mp.Process(
-            target=ocr_worker,
-            args=(self.input_queue, self.output_queue),
-            daemon=True
-        )
-        self.process.start()
-        self.text = ""
-        self.busy = False
-        print("OCR OK")
-
-    def submit(self, frame):
-        if not self.busy and not self.input_queue.full():
-            self.input_queue.put(frame.copy())
-            self.busy = True
-
-    def poll(self):
-        if self.busy and not self.output_queue.empty():
-            self.text = self.output_queue.get()
-            self.busy = False
-
-    def stop(self):
-        self.input_queue.put(None)
-        self.process.join(timeout=3)
-#-----------------------------------------------------------------------------------
-#Thread Camera - Capture via camera
-#-----------------------------------------------------------------------------------
-class CameraThread:
-    def __init__(self, device, width=1280, height=720, period=0.0):
-        self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.period = period
-        self.frame = None
-        self.timestamp = None
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-
-    def update(self):
-        while self.running:
-            ret, frame = self.cap.read()
-            if ret:
-                self.frame = frame
-                self.timestamp = time.time()
-            if self.period > 0:
-                time.sleep(self.period)
-
-    def stop(self):
-        self.running = False
-        self.cap.release()
-
-#-----------------------------------------------------------------------------------
-#Thread INPUT - Entrées clavier SSH
-#-----------------------------------------------------------------------------------
-class KeyboardThread:
-    def __init__(self):
-        self.key = None
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-
-    def update(self):
-        import sys
-        while self.running:
-            line = sys.stdin.readline().strip()
-            if line:
-                self.key = line[0]
-
-    def get(self):
-        k = self.key
-        self.key = None
-        return k
-
-# -------------------------------------------------------------------------------Detection de texte
-def ocr_worker(input_queue, output_queue):
-    """Processus séparé pour l'OCR - contourne le GIL"""
-    from onnxtr.models import ocr_predictor
-    from onnxtr.io import DocumentFile
-    import cv2
-    model = ocr_predictor(
-        det_arch="db_mobilenet_v3_large",
-        reco_arch="crnn_mobilenet_v3_small"
-    )
-    while True:
-        frame = input_queue.get()
-        if frame is None:
-            break
-        try:
-            tmp = '/tmp/ipes_ocr_frame.png'
-            cv2.imwrite(tmp, frame)
-            doc = DocumentFile.from_images(tmp)
-            result = model(doc)
-            text = result.render().strip()
-            lines = [l for l in text.split('\n') if len(l.strip()) > 2]
-            output_queue.put(' | '.join(lines[-2:]) if lines else "")
-        except Exception as e:
-            output_queue.put("")
-
-
-# -------------------------------------------------------------------------------Detection de mouvements latérale
-def detect_motion_zone(prev_gray, gray, seuil=10):
-    small_prev = cv2.resize(prev_gray, (160, 90))
-    small_gray = cv2.resize(gray, (160, 90))
-    diff = cv2.absdiff(small_prev, small_gray)
-    _, thresh = cv2.threshold(diff, seuil, 255, cv2.THRESH_BINARY)
-    w = thresh.shape[1]
-    motion_left  = np.sum(thresh[:, :w//2]) / 255
-    motion_right = np.sum(thresh[:, w//2:]) / 255
-    return motion_left, motion_right
-
-#------------------------------------------------------------------------------ Affichage horizon artificiel
-def draw_horizon(frame, roll, pitch):
-    h, w = frame.shape[:2]
-    cx, cy = w // 2, h // 2
-    color = (0, 255, 0)
-
-    # Décalage vertical selon le pitch (1 pixel par degré)
-    pitch_offset = int(pitch * 4)
-
-    # Longueur de la ligne d'horizon
-    length = w // 2
-
-    # Calcul des extrémités selon le roll
-    angle_rad = math.radians(roll)
-    dx = int(length * math.cos(angle_rad))
-    dy = int(length * math.sin(angle_rad))
-
-    # Points de la ligne d'horizon
-    x1 = cx - dx
-    y1 = cy + pitch_offset + dy
-    x2 = cx + dx
-    y2 = cy + pitch_offset - dy
-
-    cv2.line(frame, (x1, y1), (x2, y2), color, 3)
-
-    # Marqueur centre fixe (repère casque)
-    cv2.line(frame, (cx - 60, cy), (cx - 20, cy), (255, 255, 255), 3)
-    cv2.line(frame, (cx + 20, cy), (cx + 60, cy), (255, 255, 255), 3)
-    cv2.circle(frame, (cx, cy), 5, (255, 255, 255), -1)
-
-    return frame
-
-#----------------------------------------------------------------------Affichage boussole
-def draw_compass(frame, yaw):
-    h, w = frame.shape[:2]
-    cx = w // 2
-    compass_y = 40
-    compass_w = w // COMPASS_DIV.get(MODE, 3) + 50
-    deg_per_px = compass_w / 60.0  # 60 deg visibles au total
-
-    color_small = (0, 200, 0)
-    color_large = (255, 255, 255)
-    color_cardinal = (0, 200, 255)
-
-    cardinals = {0: 'N', 45: 'NE', 90: 'E', 135: 'SE',
-                 180: 'S', 225: 'SO', 270: 'O', 315: 'NO'}
-
-    # Ligne de base
-    cv2.line(frame, (cx - compass_w//2, compass_y),
-             (cx + compass_w//2, compass_y), color_small, 2)
-
-    # Dessiner 360° de graduations centrées sur yaw
-    for deg in range(0, 360):
-        # Distance angulaire par rapport au cap actuel
-        diff = (deg - yaw + 180) % 360 - 180
-        if abs(diff) > 30:  # 30° de chaque côté = 60° visibles
-            continue
-
-        px = cx + int(diff * deg_per_px)
-
-        if deg % 45 == 0:
-            # Grand trait + cardinal
-            cv2.line(frame, (px, compass_y - 5), (px, compass_y + 25), color_cardinal, 3)
-            label = cardinals.get(deg, '')
-            cv2.putText(frame, label, (px - 12, compass_y + 45),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, color_cardinal, 3)
-        elif deg % 10 == 0:
-            # Trait moyen + chiffre
-            cv2.line(frame, (px, compass_y - 3), (px, compass_y + 18), color_large, 2)
-            cv2.putText(frame, str(deg), (px - 10, compass_y + 38),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_large, 2)
-        elif deg % 5 == 0:
-            # Trait moyen sans chiffre
-            cv2.line(frame, (px, compass_y), (px, compass_y + 12), color_small, 2)
-        else:
-            # Petit trait
-            cv2.line(frame, (px, compass_y), (px, compass_y + 6), color_small, 2)
-
-    # Marqueur cap fixe (triangle)
-    pts = np.array([[cx, compass_y - 4], [cx - 12, compass_y - 16], [cx + 12, compass_y - 16]])
-    cv2.fillPoly(frame, [pts], color_large)
-
-    return frame
-
-#---------------------------------------------------------------------------- Chargement de la minimap
-def get_minimap(lat, lon, zoom=14, size=250):
-    x_tile, y_tile = deg2tile(lat, lon, zoom)
-    tile_size = 256
-    
-    # Calcul position exacte en pixels dans la tuile
-    n = 2 ** zoom
-    lat_r = math.radians(lat)
-    px_exact = (lon + 180) / 360 * n * tile_size
-    py_exact = (1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n * tile_size
-    
-    # Décalage par rapport au coin de la tuile centrale
-    px_in_tile = px_exact - x_tile * tile_size
-    py_in_tile = py_exact - y_tile * tile_size
-    
-    canvas = np.zeros((size, size, 3), dtype=np.uint8)
-    
-    for dx in range(-1, 2):
-        for dy in range(-1, 2):
-            tx = x_tile + dx
-            ty = y_tile + dy
-            path = os.path.join(TILES_DIR, str(zoom), str(tx), f"{ty}.png")
-            if not os.path.exists(path):
-                continue
-            img = np.array(Image.open(path).convert('RGB'))
-            img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-            
-            # Position de la tuile sur le canvas
-            # Centre du canvas = position exacte GPS
-            cx = size//2 + dx * tile_size - int(px_in_tile)
-            cy = size//2 + dy * tile_size - int(py_in_tile)
-            
-            x1 = max(0, cx)
-            y1 = max(0, cy)
-            x2 = min(size, cx + tile_size)
-            y2 = min(size, cy + tile_size)
-            
-            sx1 = max(0, -cx)
-            sy1 = max(0, -cy)
-            
-            if x2 > x1 and y2 > y1:
-                canvas[y1:y2, x1:x2] = img[sy1:sy1+(y2-y1), sx1:sx1+(x2-x1)]
-    
-    # Marqueur position — maintenant vraiment au centre
-    cv2.circle(canvas, (size//2, size//2), 6, (0, 0, 255), -1)
-    cv2.circle(canvas, (size//2, size//2), 8, (255, 255, 255), 2)
-    
-    return canvas
-#----------------------------------- Conversion de le position en coordonnées GPS vers position sur tuille minimap
-def deg2tile(lat, lon, zoom):
-    lat_r = math.radians(lat)
-    n = 2 ** zoom
-    x = int((lon + 180) / 360 * n)
-    y = int((1 - math.log(math.tan(lat_r) + 1/math.cos(lat_r)) / math.pi) / 2 * n)
-    return x, y
-
-# --------------------------------------------------------------------------------Affichage de la Zone A
-def draw_zone_a(frame, lat, lon, zoom=14):
-    h, w = frame.shape[:2]
-    
-    minimap = get_minimap(lat, lon, zoom=zoom, size=250)
-    
-    # Bordure zone A
-    cv2.rectangle(minimap, (0, 0), (199, 199), (0, 150, 0), 1)
-    cv2.putText(minimap, "NAV", (5, 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 150, 0), 1)
-    
-    # Coller en haut gauche
-    frame[0:250, 0:250] = minimap
-    
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone B
-def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
-    h, w = frame.shape[:2]
-    cx = w // 2
-    compass_w = w // COMPASS_DIV.get(MODE, 3) + 50
-    # Fond semi-transparent derrière la zone boussole + altimètres
-    overlay = frame.copy()
-
-    # Fond derrière boussole
-    if SHOW_COMPASS:
-        cv2.rectangle(overlay, 
-                      (cx - compass_w//2 - 5, 0), 
-                      (cx + compass_w//2 + 5, 95), 
-                      (0, 0, 0), -1)
-
-    # Fond derrière curseur gauche (pieds)
-    if SHOW_ALTITUDE and MODE != "MINIMAL":
-        cv2.rectangle(overlay,
-                      (cx - compass_w//2 - 110, 0),
-                      (cx - compass_w//2, 240),
-                      (0, 0, 0), -1)
-        # Fond derrière curseur droit (mètres)
-        cv2.rectangle(overlay,
-                      (cx + compass_w//2, 0),
-                      (cx + compass_w//2 + 110, 240),
-                      (0, 0, 0), -1)
-
-    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
-
-    # Horizon artificiel
-    if SHOW_HORIZON:
-        frame = draw_horizon(frame, roll, pitch)
-    
-    # Boussole
-    COMPASS_OFFSET = -45
-    if SHOW_COMPASS:
-        frame = draw_compass(frame, (-yaw + COMPASS_OFFSET) % 360)
-    
-    # Curseurs altitude
-    alt_m = 44330 * (1 - (pressure / 1013.25) ** 0.1903)
-    alt_ft = alt_m * 3.28084
-
-    color_large = (255, 255, 255)
-    color_small = (0, 200, 0)
-    color_dim = (0, 150, 0)
-    
-    compass_left  = cx - compass_w//2 - 10  # juste à gauche de la boussole
-    compass_right = cx + compass_w//2 + 10  # juste à droite
-
-    if SHOW_ALTITUDE and MODE != "MINIMAL":
-        # Curseur gauche = pieds
-        cv2.putText(frame, "FT", (compass_left - 60, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-        #cv2.putText(frame, f"{alt_ft:.0f}", (compass_left - 30, 120 + 5),
-        #       cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
-
-        # Curseur droit = mètres
-        cv2.putText(frame, "M", (compass_right + 50, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-        #cv2.putText(frame, f"{alt_m:.0f}", (compass_right, 120 + 5),
-        #        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
-    
-        # Graduation verticale altitude — gauche (pieds)
-        grad_h = 175  # hauteur totale de la graduation
-        grad_x_l = compass_left - 5
-        grad_y_center = 120  # centre vertical
-        cv2.line(frame, (grad_x_l, grad_y_center - grad_h//2),
-             (grad_x_l, grad_y_center + grad_h//2), color_dim, 2)
-
-        for i in range(-5, 6):
-            y = grad_y_center + i * 17
-
-            if i == 0:
-                # Valeur réelle — trait épais + texte blanc grand
-                cv2.line(frame, (grad_x_l - 12, y), (grad_x_l, y), color_large, 3)
-                txt_ft = f"{int(alt_ft)}"
-                txt_ft_w = cv2.getTextSize(txt_ft, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
-                cv2.putText(frame, txt_ft, (grad_x_l - 20 - txt_ft_w, y + 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
-            elif i % 5 == 0:
-                cv2.line(frame, (grad_x_l - 8, y), (grad_x_l, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_ft - i*50)}", (grad_x_l - 50, y+5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-            else:
-                cv2.line(frame, (grad_x_l - 4, y), (grad_x_l, y), color_small, 2)
-
-        # Graduation verticale altitude — droite (mètres)
-        grad_x_r = compass_right + 5
-        cv2.line(frame, (grad_x_r, grad_y_center - grad_h//2),
-             (grad_x_r, grad_y_center + grad_h//2), color_dim, 2)
-
-        for i in range(-5, 6):
-            y = grad_y_center + i * 17
-            if i == 0:
-                # Valeur réelle — trait épais + texte blanc grand
-                cv2.line(frame, (grad_x_r + 12, y), (grad_x_r, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_ft)}", (grad_x_r + 20, y + 8),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
-            elif i % 5 == 0:
-                cv2.line(frame, (grad_x_r, y), (grad_x_r + 8, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_m - i*15)}", (grad_x_r + 20, y+5),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-            else:
-                cv2.line(frame, (grad_x_r, y), (grad_x_r + 4, y), color_small, 2)
-    
-    # R/P/Y — zone B haut gauche sous la boussole
-    color_dim = (0, 150, 0)
-    h, w = frame.shape[:2]
-    cx = w // 2
-
-    if DEBUG:
-        cv2.putText(frame, f"R:{roll:6.1f}", (cx - 0, 100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
-        cv2.putText(frame, f"P:{pitch:6.1f}", (cx - 0, 120),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
-        cv2.putText(frame, f"Y:{yaw:6.1f}", (cx - 0, 140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)    
-
-    # Marqueur POI sur la boussole
-    if poi is not None:
-        cw = w // COMPASS_DIV.get(MODE, 3) + 50
-        dpp = cw / 60.0
-        d = poi["yaw"] - yaw
-        while d > 180: d -= 360
-        while d < -180: d += 360
-        if abs(d) < 30:
-            mx = cx + int(d * dpp)
-            cv2.drawMarker(frame, (mx, 62), POI_COLOR,
-                           cv2.MARKER_TRIANGLE_DOWN, 14, 2)
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone C
-def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
-    h, w = frame.shape[:2]
-    # Zone C : haut droite 200x200px
-    x = 110
-    y = 10
-    color_dim = (0, 150, 0)
-    now = datetime.now()
-
-    cv2.putText(frame, now.strftime("%H:%M:%S"), (x, y+20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-
-    if MODE not in ("MINIMAL", "OFF"):
-        cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-        temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
-        cv2.putText(frame, f"CPU:{cpu:.0f}%", (x, y+80),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-        cv2.putText(frame, f"T:{jetson_temp:.0f}C", (x, y+110),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, temp_color, 2)
-
-    cv2.putText(frame, MODE, (x, y+140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
-    # debug fps + latence
-    if DEBUG:
-        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+140),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, f"LAT:{lat:.0f}ms", (x, y+160),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, side, (x, y+180),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone D
-def draw_zone_d(frame, alert_active):
-    if not alert_active:
-        return frame
-    h, w = frame.shape[:2]
-    # Zone D : centre gauche, 200px de large
-    cy = h // 2
-    # Flèche principale
-    cv2.arrowedLine(frame, (190, cy), (30, cy), (0, 0, 255), 8, tipLength=0.4)
-    # Texte alerte
-    cv2.putText(frame, "PERS", (20, cy - 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone CENTRE
-def draw_poi(frame, yaw, pitch):
-    """Cercle de verrouillage POI, ou fleche de bord si hors champ"""
-    if poi is None:
-        return frame
-    h, w = frame.shape[:2]
-    cx, cy = w // 2, h // 2
-    dyaw = poi["yaw"] - yaw
-    while dyaw > 180: dyaw -= 360
-    while dyaw < -180: dyaw += 360
-    dpitch = poi["pitch"] - pitch
-    px = int(cx + dyaw * PX_PER_DEG_X)
-    py = int(cy - dpitch * PX_PER_DEG_Y)
-    m = 45
-    if m < px < w - m and m < py < h - m:
-        cv2.circle(frame, (px, py), 28, POI_COLOR, 2)
-        cv2.circle(frame, (px, py), 3, POI_COLOR, -1)
-        cv2.line(frame, (px-40, py), (px-34, py), POI_COLOR, 2)
-        cv2.line(frame, (px+34, py), (px+40, py), POI_COLOR, 2)
-        cv2.line(frame, (px, py-40), (px, py-34), POI_COLOR, 2)
-        cv2.line(frame, (px, py+34), (px, py+40), POI_COLOR, 2)
-    else:
-        ex = min(max(px, m), w - m)
-        ey = min(max(py, m), h - m)
-        ang = math.atan2(py - cy, px - cx)
-        pts = np.array([
-            (int(ex + 20*math.cos(ang)),     int(ey + 20*math.sin(ang))),
-            (int(ex + 20*math.cos(ang+2.5)), int(ey + 20*math.sin(ang+2.5))),
-            (int(ex + 20*math.cos(ang-2.5)), int(ey + 20*math.sin(ang-2.5))),
-        ])
-        cv2.fillPoly(frame, [pts], POI_COLOR)
-    return frame
-
-def draw_vignettes(frame, det):
-    """Imagettes des personnes detectees, cote correspondant."""
-    h, w = frame.shape[:2]
-    vy = h // 2 - 80
-    for cote, vx in (('L', 15), ('R', w - 135)):
-        v = det.vignette(cote)
-        if v is None:
-            continue
-        frame[vy:vy + 160, vx:vx + 120] = v
-        cv2.rectangle(frame, (vx - 2, vy - 2), (vx + 122, vy + 162),
-                      (0, 165, 255), 2)
-    return frame
-
-def draw_zone_centre(frame):
-    if not SHOW_RETICULE or MODE == "MINIMAL":
-        return frame
-    h, w = frame.shape[:2]
-    cx, cy = w//2, h//2
-    color = (0, 255, 0)
-    cv2.line(frame, (cx-20, cy), (cx+20, cy), color, 2)
-    cv2.line(frame, (cx, cy-20), (cx, cy+20), color, 2)
-    cv2.circle(frame, (cx, cy), 30, color, 2)
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone E
-def draw_zone_e(frame, alert_active, radar_targets=None):
-    h, w = frame.shape[:2]
-    cy = h // 2
-
-    # Flèche alerte mouvement
-    if alert_active:
-        cv2.arrowedLine(frame, (w-190, cy), (w-30, cy), (0,0,255), 8, tipLength=0.4)
-        cv2.putText(frame, "PERS", (w-70, cy-30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
-
-    # Cibles radar - distance de la plus proche, au-dela de 50 cm
-    if radar_targets:
-        dists = [math.hypot(t["x"], t["y"]) for t in radar_targets]
-        dists = [d for d in dists if d > 0.5]
-        if dists:
-            d = min(dists)
-            couleur = (0, 0, 255) if d < 2.0 else (0, 165, 255)
-            cv2.putText(frame, "RADAR %.1fm" % d,
-                        (w-250, cy + 90),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone G
-def draw_zone_g(frame, text):
-    if not text:
-        return frame
-    h, w = frame.shape[:2]
-    
-    # Zone G : bas centre 1040x200px
-    x = 200
-    y = h - 180
-    zone_w = w - 400  # 1040px
-    
-    # Fond opaque derrière le texte uniquement
-    cv2.rectangle(frame, (x, y - 10), (x + zone_w, h - 10), (0, 0, 0), -1)
-    
-    # Texte style sous-titres cinéma
-    cv2.putText(frame, text[:80], (x + 10, y + 40),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
-    
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone H
-def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
-    h, w = frame.shape[:2]
-    
-    # Zone H : bas droite 200x200px
-    x = w - 200
-    y = h - 200
-    
-    color = (0, 255, 0)      # vert nominal
-    color_dim = (0, 150, 0)
-    
-    # Fond opaque (règle LCD)
-    cv2.rectangle(frame, (x, y), (w-1, h-1), (15, 20, 26), -1)
-    cv2.rectangle(frame, (x, y), (w-1, h-1), color_dim, 1)
-    
-    # Label zone
-    cv2.putText(frame, "ENV", (x+90, y+20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-    
-    # Température
-    cv2.putText(frame, "TEMP :", (x+8, y+60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{temperature:.1f}C", (x+65, y+60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-    
-    # Humidité
-    cv2.putText(frame, "HUM :", (x+8, y+100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{humidity:.0f}%", (x+65, y+100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-    
-    # Gaz VOC — indicateur qualitatif
-    if gas > 50000:
-        gaz_label = "AIR OK"
-        gaz_color = (0, 255, 0)
-    elif gas > 20000:
-        gaz_label = "MOYEN"
-        gaz_color = (0, 200, 255)
-    else:
-        gaz_label = "ALERTE"
-        gaz_color = (0, 0, 255)
-
-    cv2.putText(frame, "GAZ :", (x+8, y+140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, gaz_label, (x+65, y+140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, gaz_color, 2)
-
-    if SHOW_GAS_RES:
-        cv2.putText(frame, f"Gas res :{gas//1000}k ohm", (x+8, y+160),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
-
-    # Pression
-    cv2.putText(frame, "PRES :", (x+8, y+180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{pressure:.1f}hPa", (x+65, y+180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-    
-    return frame
-
-# --------------------------------------------------------------------------------Affichage de la Zone I
-def draw_zone_i(frame, message, color=(0, 0, 255)):
-    h, w = frame.shape[:2]
-    cy = h // 2
-    
-    # Fond semi-opaque pleine largeur
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (0, cy - 60), (w, cy + 60), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
-    
-    # Bordures
-    cv2.line(frame, (0, cy - 60), (w, cy - 60), color, 2)
-    cv2.line(frame, (0, cy + 60), (w, cy + 60), color, 2)
-    
-    # Texte centré
-    text_size = cv2.getTextSize(message, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 3)[0]
-    tx = (w - text_size[0]) // 2
-    cv2.putText(frame, message, (tx, cy + 15),
-                cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
-    
-    return frame
-
-#-----------------------------------------------------------------------------------Affichage time stamp
-def draw_timestamp_debug(frame):
-    h, w = frame.shape[:2]
-    now = datetime.now()
-    ts = f"{now.strftime('%H:%M:%S')}.{now.microsecond // 1000:03d}"
-    cv2.putText(frame, ts, (w//2 - 250, h//2 + 200),
-                cv2.FONT_HERSHEY_SIMPLEX, 2.5, (0, 255, 255), 5)
-    return frame
 
 #----------------------------------------------------------------------------- Instanciations
-cam_left  = CameraThread(CAM_LEFT, period=1.0)
+cam_left = CameraThread(cfg.CAM_LEFT, period=1.0)
 time.sleep(1)
-cam_right = CameraThread(CAM_RIGHT, period=1.0)
+cam_right = CameraThread(cfg.CAM_RIGHT, period=1.0)
 time.sleep(1)
 cam_night = None
-time.sleep(1)
+
 imu = IMUThread()
 time.sleep(0.5)
 bme = BMEThread()
@@ -932,29 +43,20 @@ gps = GPSThread()
 time.sleep(1)
 radar = RadarThread()
 kb = KeyboardThread()
+
 print("Init detection personnes...")
 detector = PersonDetector()
 detect_last = 0.0
 detect_side = 'L'
 print("Detection OK")
-time.sleep(0.5)
-time.sleep(0.5)
+
 #----------------------------------------------------------------------------- Initialisation
 count = 0
 fps = 0
 lat_display = 0
-lat_update = time.time()
-
-prev_gray_l = None
-prev_gray_r = None
 
 alert_l_time = 0
 alert_r_time = 0
-ALERT_DURATION = 1.5
-ZONE_SEUIL = 600
-SEUIL_RES_GAS = 20000
-SEUIL_TEMP_EXT = 35
-SEUIL_TEMP_JETSON = 75
 
 jetson_temp = 0.0
 cpu_percent = 0.0
@@ -965,48 +67,47 @@ minimap_last_lat = 0
 minimap_last_lon = 0
 
 t0 = time.time()
-
 night_switch_time = 0
 
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-cv2.resizeWindow("IPES HUD V1", 1920, 1080)
+cv2.resizeWindow("IPES HUD V1", cfg.ECRAN_W, cfg.ECRAN_H)
 
 # ----------------------------------------------------------------------------- Boucle While
 while True:
+    # Telemetrie systeme toutes les 2 s
     if time.time() - sys_update > 2.0:
         try:
             with open('/sys/devices/virtual/thermal/thermal_zone1/temp') as f:
                 jetson_temp = int(f.read().strip()) / 1000
             cpu_percent = psutil.cpu_percent()
-        except:
+        except Exception:
             pass
         sys_update = time.time()
 
     # Bascule nocturne automatique
-    if NIGHT_VISION_AUTO_SWITCH and not NIGHT_VISION:
-        if time.time() - t0 > NIGHT_VISION_DELAY:
+    if cfg.NIGHT_VISION_AUTO_SWITCH and not cfg.NIGHT_VISION:
+        if time.time() - t0 > cfg.NIGHT_VISION_DELAY:
             if night_switch_time == 0:
                 cam_left.stop()
                 cam_right.stop()
                 night_switch_time = time.time()
-                print("Arrêt caméras stéréo...")
+                print("Arret cameras stereo...")
             elif time.time() - night_switch_time > 1.0 and cam_night is None:
-                cam_night = CameraThread(CAM_NIGHT)
+                cam_night = CameraThread(cfg.CAM_NIGHT)
                 time.sleep(0.5)
-                NIGHT_VISION = True
+                cfg.NIGHT_VISION = True
                 print("Bascule vision nocturne")
 
-    # Flux OV9281 pour detection de mouvement (independant de l affichage)
     now_t = time.time()
 
     # Detection de personnes - alternance gauche/droite, 1 Hz
     detector.poll()
-    if not NIGHT_VISION and time.time() - detect_last > 1.0:
+    if not cfg.NIGHT_VISION and now_t - detect_last > 1.0:
         cam = cam_left if detect_side == 'L' else cam_right
         if cam is not None and cam.frame is not None:
             if detector.submit(cam.frame, detect_side):
-                detect_last = time.time()
+                detect_last = now_t
                 detect_side = "R" if detect_side == "L" else "L"
 
     nL, nR = detector.compte('L'), detector.compte('R')
@@ -1018,11 +119,11 @@ while True:
         alert_r_time = now_t
 
     # Dimensions zone utile (marges de securite Xreal)
-    HUD_W = int(1920 * (1 - MARGE_G - MARGE_D))
-    HUD_H = int(1080 * (1 - 2 * MARGE_Y))
+    HUD_W = int(cfg.ECRAN_W * (1 - cfg.MARGE_G - cfg.MARGE_D))
+    HUD_H = int(cfg.ECRAN_H * (1 - 2 * cfg.MARGE_Y))
 
     # Fond : video nocturne, ou noir pour transparence
-    if NIGHT_VISION and cam_night is not None and cam_night.frame is not None:
+    if cfg.NIGHT_VISION and cam_night is not None and cam_night.frame is not None:
         hud = cv2.resize(cam_night.frame, (HUD_W, HUD_H))
         if len(hud.shape) == 2:
             hud = cv2.cvtColor(hud, cv2.COLOR_GRAY2BGR)
@@ -1030,119 +131,133 @@ while True:
     else:
         hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
-    # Zone A - Donnees systeme
-    hud = draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display)
+    # Zone A - Donnees systeme (tous modes)
+    hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display)
 
-    if MODE != "OFF":
+    if cfg.MODE != "OFF":
         # Zone B - Boussole et altimetre
-        hud = draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+        hud = draw.draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
 
         # Zone C - Navigation GPS et minimap
-        if MODE in MINIMAP_SIZE:
-            ms = MINIMAP_SIZE[MODE]
-            if minimap_cache is None or minimap_cache.shape[0] != ms or abs(gps.lat - minimap_last_lat) > 0.0001 or abs(gps.lon - minimap_last_lon) > 0.0001:
-                minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=ms)
+        if cfg.MODE in cfg.MINIMAP_SIZE:
+            ms = cfg.MINIMAP_SIZE[cfg.MODE]
+            if (minimap_cache is None or minimap_cache.shape[0] != ms
+                    or abs(gps.lat - minimap_last_lat) > 0.0001
+                    or abs(gps.lon - minimap_last_lon) > 0.0001):
+                minimap_cache = draw.get_minimap(gps.lat, gps.lon, zoom=14, size=ms)
                 minimap_last_lat = gps.lat
                 minimap_last_lon = gps.lon
             hud[60:60+ms, HUD_W-ms:HUD_W] = minimap_cache
 
-        # Zone Centre - reticule et horizon artificiel
-        hud = draw_zone_centre(hud)
-        hud = draw_poi(hud, imu.yaw, imu.pitch)
+        # Zone Centre - reticule et POI
+        hud = draw.draw_zone_centre(hud)
+        hud = draw.draw_poi(hud, imu.yaw, imu.pitch)
 
-        # Zone D/E - Fleches d alerte
-        hud = draw_zone_d(hud, now_t - alert_l_time < ALERT_DURATION)
-        hud = draw_zone_e(hud, now_t - alert_r_time < ALERT_DURATION, radar.targets)
-        hud = draw_vignettes(hud, detector)
+        # Zone D/E - Fleches d'alerte et vignettes
+        hud = draw.draw_zone_d(hud, now_t - alert_l_time < cfg.ALERT_DURATION)
+        hud = draw.draw_zone_e(hud, now_t - alert_r_time < cfg.ALERT_DURATION, radar.targets)
+        hud = draw.draw_vignettes(hud, detector)
 
-        if MODE != "MINIMAL":
+        if cfg.MODE != "MINIMAL":
             # Zone G - OCR
-            if ACTIVATE_OCR and count % 150 == 0:
-                if cam_left and cam_left.frame is not None: ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
+            if cfg.ACTIVATE_OCR and count % 150 == 0:
+                if cam_left and cam_left.frame is not None:
+                    ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
             ocr.poll()
-            if SHOW_OCR:
-                hud = draw_zone_g(hud, ocr.text)
+            if cfg.SHOW_OCR:
+                hud = draw.draw_zone_g(hud, ocr.text)
 
             # Zone H - Donnees environnement
-            hud = draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+            hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
 
     # Zone I - Alertes critiques (tous modes)
-    if bme.gas > 0 and bme.gas < SEUIL_RES_GAS:
-        hud = draw_zone_i(hud, "!!! ALERTE GAZ !!!")
-    if bme.temperature > SEUIL_TEMP_EXT:
-        hud = draw_zone_i(hud, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
-    if jetson_temp > SEUIL_TEMP_JETSON:
-        hud = draw_zone_i(hud, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
-    
-    # Affichage time stamp
-    if DEBUG:
-        hud = draw_timestamp_debug(hud)
+    if 0 < bme.gas < cfg.SEUIL_RES_GAS:
+        hud = draw.draw_zone_i(hud, "!!! ALERTE GAZ !!!")
+    if bme.temperature > cfg.SEUIL_TEMP_EXT:
+        hud = draw.draw_zone_i(hud, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
+    if jetson_temp > cfg.SEUIL_TEMP_JETSON:
+        hud = draw.draw_zone_i(hud, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
+
+    if cfg.DEBUG:
+        hud = draw.draw_timestamp_debug(hud)
 
     count += 1
     fps = count / (time.time() - t0)
 
-    # Composition finale : HUD centre sur fond noir 1920x1080
-    ecran = np.zeros((1080, 1920, 3), dtype=np.uint8)
-    ox = int(1920 * MARGE_G)
-    oy = (1080 - HUD_H) // 2
+    # Composition finale : HUD centre sur fond noir plein ecran
+    ecran = np.zeros((cfg.ECRAN_H, cfg.ECRAN_W, 3), dtype=np.uint8)
+    ox = int(cfg.ECRAN_W * cfg.MARGE_G)
+    oy = (cfg.ECRAN_H - HUD_H) // 2
     ecran[oy:oy+HUD_H, ox:ox+HUD_W] = hud
 
-    # Barres laterales d alerte dans les marges (hors zone utile)
-    if MODE != "OFF":
-        if now_t - alert_l_time < ALERT_DURATION:
-            cv2.rectangle(ecran, (0, 0), (12, 1080), (0, 165, 255), -1)
-        if now_t - alert_r_time < ALERT_DURATION:
-            cv2.rectangle(ecran, (1908, 0), (1920, 1080), (0, 165, 255), -1)
+    # Barres laterales d'alerte dans les marges (hors zone utile)
+    if cfg.MODE != "OFF":
+        if now_t - alert_l_time < cfg.ALERT_DURATION:
+            cv2.rectangle(ecran, (0, 0), (12, cfg.ECRAN_H), (0, 165, 255), -1)
+        if now_t - alert_r_time < cfg.ALERT_DURATION:
+            cv2.rectangle(ecran, (cfg.ECRAN_W - 12, 0),
+                          (cfg.ECRAN_W, cfg.ECRAN_H), (0, 165, 255), -1)
+
     cv2.imshow("IPES HUD V1", ecran)
 
-    # Capture auto après 10 secondes
-    if count == 300 and DEBUG:  # ~10sec à 30fps
-        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', hud)
-        print("Capture sauvegardée !")
-
+    # ------------------------------------------------------------------------- Entrees clavier
     key = cv2.waitKey(1) & 0xFF
     kb_key = kb.get()
     if kb_key:
         key = ord(kb_key)
+
     if key == ord('q'):
         break
+
     elif key == ord('n'):
-        if not NIGHT_VISION:
+        # Bascule nocturne : les cameras ne peuvent pas cohabiter sur le hub USB
+        if not cfg.NIGHT_VISION:
             cam_left.stop()
             cam_right.stop()
             time.sleep(0.5)
-            cam_night = CameraThread(CAM_NIGHT)
+            cam_night = CameraThread(cfg.CAM_NIGHT)
             time.sleep(0.5)
-            NIGHT_VISION = True
+            cfg.NIGHT_VISION = True
             print("Vision nocturne ON")
         else:
             cam_night.stop()
             cam_night = None
             time.sleep(0.5)
-            cam_left = CameraThread(CAM_LEFT)
-            cam_right = CameraThread(CAM_RIGHT)
+            cam_left = CameraThread(cfg.CAM_LEFT, period=1.0)
+            cam_right = CameraThread(cfg.CAM_RIGHT, period=1.0)
             time.sleep(0.5)
-            NIGHT_VISION = False
+            cfg.NIGHT_VISION = False
             print("Vision nocturne OFF")
-    elif key in (ord('1'), ord('2'), ord('3'), ord('4')):
-        MODE = MODES[key - ord('1')]
-        minimap_cache = None
-        print("Mode:", MODE)
-    elif key == ord('m'):
-        MODE = MODES[(MODES.index(MODE) + 1) % len(MODES)]
-        minimap_cache = None
-        print("Mode:", MODE)
-    elif key == ord('v'):
-        poi = {"yaw": imu.yaw, "pitch": imu.pitch, "t": time.time()}
-        print("POI verrouille yaw=%.1f pitch=%.1f" % (imu.yaw, imu.pitch))
-    elif key == ord('c'):
-        poi = None
-        print("POI efface")
-    elif key == ord('s'):
-        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', hud)
-        print("Capture sauvegardée")
 
+    elif key in (ord('1'), ord('2'), ord('3'), ord('4')):
+        cfg.MODE = cfg.MODES[key - ord('1')]
+        minimap_cache = None
+        print("Mode:", cfg.MODE)
+
+    elif key == ord('m'):
+        cfg.MODE = cfg.MODES[(cfg.MODES.index(cfg.MODE) + 1) % len(cfg.MODES)]
+        minimap_cache = None
+        print("Mode:", cfg.MODE)
+
+    elif key == ord('v'):
+        cfg.poi = {"yaw": imu.yaw, "pitch": imu.pitch, "t": time.time()}
+        print("POI verrouille yaw=%.1f pitch=%.1f" % (imu.yaw, imu.pitch))
+
+    elif key == ord('c'):
+        cfg.poi = None
+        print("POI efface")
+
+    elif key == ord('s'):
+        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', ecran)
+        print("Capture sauvegardee")
+
+#----------------------------------------------------------------------------- Arret propre
 print(f"\nFPS pipeline complet : {fps:.1f}")
-if cam_left: cam_left.stop()
-if cam_right: cam_right.stop()
+if cam_left:
+    cam_left.stop()
+if cam_right:
+    cam_right.stop()
+if cam_night:
+    cam_night.stop()
+detector.stop()
 cv2.destroyAllWindows()
