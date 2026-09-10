@@ -721,7 +721,7 @@ def draw_zone_d(frame, alert_active):
     # Flèche principale
     cv2.arrowedLine(frame, (190, cy), (30, cy), (0, 0, 255), 8, tipLength=0.4)
     # Texte alerte
-    cv2.putText(frame, "MVT", (20, cy - 30),
+    cv2.putText(frame, "PERS", (20, cy - 30),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
     return frame
 
@@ -777,7 +777,7 @@ def draw_zone_e(frame, alert_active, radar_targets=None):
     # Flèche alerte mouvement
     if alert_active:
         cv2.arrowedLine(frame, (w-190, cy), (w-30, cy), (0,0,255), 8, tipLength=0.4)
-        cv2.putText(frame, "MVT", (w-70, cy-30),
+        cv2.putText(frame, "PERS", (w-70, cy-30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0,0,255), 2)
 
     # Cibles radar
@@ -998,42 +998,6 @@ while True:
         alert_l_time = now_t
     if nR > 0:
         alert_r_time = now_t
-    motion_ok = (not NIGHT_VISION) and cam_left is not None and cam_left.frame is not None and cam_right is not None and cam_right.frame is not None
-    if motion_ok:
-        fl = cam_left.frame.copy()
-        fr = cam_right.frame.copy()
-
-        if len(fl.shape) == 2:
-            fl = cv2.cvtColor(fl, cv2.COLOR_GRAY2BGR)
-        if len(fr.shape) == 2:
-            fr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
-
-        if time.time() - lat_update > 1.0:
-            if not NIGHT_VISION and cam_left.timestamp:
-                lat_display = (time.time() - cam_left.timestamp) * 1000
-            lat_update = time.time()
-
-        # Flux optique en alternance
-        gray_l = cv2.cvtColor(fl, cv2.COLOR_BGR2GRAY)
-        gray_r = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
-
-        # Bloc detection de mouvement
-        if count % 2 == 0:
-            if prev_gray_l is not None:
-                ml, mr = detect_motion_zone(prev_gray_l, gray_l)
-                if ml > ZONE_SEUIL:
-                    alert_l_time = now_t
-                if mr > ZONE_SEUIL:
-                    alert_r_time = now_t
-            prev_gray_l = gray_l.copy()
-        else:
-            if prev_gray_r is not None:
-                ml, mr = detect_motion_zone(prev_gray_r, gray_r)
-                if ml > ZONE_SEUIL:
-                    alert_l_time = now_t
-                if mr > ZONE_SEUIL:
-                    alert_r_time = now_t
-            prev_gray_r = gray_r.copy()
 
     # Dimensions zone utile (marges de securite Xreal)
     HUD_W = int(1920 * (1 - MARGE_G - MARGE_D))
