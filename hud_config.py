@@ -47,8 +47,8 @@ CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.4:1.0-video-index0"
 CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
 
-GPS_PORT = '/dev/ttyTHS1'
-RADAR_PORT = '/dev/ttyUSB0'
+GPS_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.4:1.0-port0'  # FT232 USB-A
+RADAR_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.1:1.0-port0'  # FT232 USB-A
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)
