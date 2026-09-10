@@ -65,6 +65,20 @@ NIGHT_VISION_DELAY = 10  # secondes avant bascule auto
 # Marges de securite affichage Xreal (pourcentage)
 MARGE_G = 0.10   # marge gauche
 MARGE_D = 0.05   # marge droite
+
+# Modes HUD
+MODES = ["NORMAL", "NAV", "MINIMAL", "OFF"]
+MODE = "NORMAL"
+MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}
+COMPASS_DIV = {"NORMAL": 2, "NAV": 3}
+
+# Verrouillage POI
+FOV_H = 40.0
+FOV_V = 22.6
+PX_PER_DEG_X = 1920 / FOV_H
+PX_PER_DEG_Y = 1080 / FOV_V
+POI_COLOR = (0, 200, 255)
+poi = None
 MARGE_Y = 0.05
 
 #------------------------------------------------------------------------------------
@@ -409,8 +423,8 @@ def draw_compass(frame, yaw):
     h, w = frame.shape[:2]
     cx = w // 2
     compass_y = 40
-    compass_w = w // 3 + 50
-    deg_per_px = compass_w / 60.0  # 60° visibles au total
+    compass_w = w // COMPASS_DIV.get(MODE, 3) + 50
+    deg_per_px = compass_w / 60.0  # 60 deg visibles au total
 
     color_small = (0, 200, 0)
     color_large = (255, 255, 255)
@@ -532,8 +546,7 @@ def draw_zone_a(frame, lat, lon, zoom=14):
 def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     h, w = frame.shape[:2]
     cx = w // 2
-    compass_w = w // 3 + 50
-
+    compass_w = w // COMPASS_DIV.get(MODE, 3) + 50
     # Fond semi-transparent derrière la zone boussole + altimètres
     overlay = frame.copy()
 
@@ -545,7 +558,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                       (0, 0, 0), -1)
 
     # Fond derrière curseur gauche (pieds)
-    if SHOW_ALTITUDE:
+    if SHOW_ALTITUDE and MODE != "MINIMAL":
         cv2.rectangle(overlay,
                       (cx - compass_w//2 - 110, 0),
                       (cx - compass_w//2, 240),
@@ -578,7 +591,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     compass_left  = cx - compass_w//2 - 10  # juste à gauche de la boussole
     compass_right = cx + compass_w//2 + 10  # juste à droite
 
-    if SHOW_ALTITUDE:
+    if SHOW_ALTITUDE and MODE != "MINIMAL":
         # Curseur gauche = pieds
         cv2.putText(frame, "FT", (compass_left - 60, 100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
@@ -646,6 +659,18 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)
         cv2.putText(frame, f"Y:{yaw:6.1f}", (cx - 0, 140),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 1)    
+
+    # Marqueur POI sur la boussole
+    if poi is not None:
+        cw = w // COMPASS_DIV.get(MODE, 3) + 50
+        dpp = cw / 60.0
+        d = poi["yaw"] - yaw
+        while d > 180: d -= 360
+        while d < -180: d += 360
+        if abs(d) < 30:
+            mx = cx + int(d * dpp)
+            cv2.drawMarker(frame, (mx, 62), POI_COLOR,
+                           cv2.MARKER_TRIANGLE_DOWN, 14, 2)
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
@@ -659,16 +684,18 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
 
     cv2.putText(frame, now.strftime("%H:%M:%S"), (x, y+20),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-    cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
 
-    # Température et charge Jetson
-    temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
-    cv2.putText(frame, f"CPU:{cpu:.0f}%", (x, y+80),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-    cv2.putText(frame, f"T:{jetson_temp:.0f}°C", (x, y+110),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, temp_color, 2)
+    if MODE not in ("MINIMAL", "OFF"):
+        cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
+        temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
+        cv2.putText(frame, f"CPU:{cpu:.0f}%", (x, y+80),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
+        cv2.putText(frame, f"T:{jetson_temp:.0f}C", (x, y+110),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, temp_color, 2)
 
+    cv2.putText(frame, MODE, (x, y+140),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
     # debug fps + latence
     if DEBUG:
         cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+140),
@@ -695,8 +722,40 @@ def draw_zone_d(frame, alert_active):
     return frame
 
 # --------------------------------------------------------------------------------Affichage de la Zone CENTRE
+def draw_poi(frame, yaw, pitch):
+    """Cercle de verrouillage POI, ou fleche de bord si hors champ"""
+    if poi is None:
+        return frame
+    h, w = frame.shape[:2]
+    cx, cy = w // 2, h // 2
+    dyaw = poi["yaw"] - yaw
+    while dyaw > 180: dyaw -= 360
+    while dyaw < -180: dyaw += 360
+    dpitch = poi["pitch"] - pitch
+    px = int(cx + dyaw * PX_PER_DEG_X)
+    py = int(cy - dpitch * PX_PER_DEG_Y)
+    m = 45
+    if m < px < w - m and m < py < h - m:
+        cv2.circle(frame, (px, py), 28, POI_COLOR, 2)
+        cv2.circle(frame, (px, py), 3, POI_COLOR, -1)
+        cv2.line(frame, (px-40, py), (px-34, py), POI_COLOR, 2)
+        cv2.line(frame, (px+34, py), (px+40, py), POI_COLOR, 2)
+        cv2.line(frame, (px, py-40), (px, py-34), POI_COLOR, 2)
+        cv2.line(frame, (px, py+34), (px, py+40), POI_COLOR, 2)
+    else:
+        ex = min(max(px, m), w - m)
+        ey = min(max(py, m), h - m)
+        ang = math.atan2(py - cy, px - cx)
+        pts = np.array([
+            (int(ex + 20*math.cos(ang)),     int(ey + 20*math.sin(ang))),
+            (int(ex + 20*math.cos(ang+2.5)), int(ey + 20*math.sin(ang+2.5))),
+            (int(ex + 20*math.cos(ang-2.5)), int(ey + 20*math.sin(ang-2.5))),
+        ])
+        cv2.fillPoly(frame, [pts], POI_COLOR)
+    return frame
+
 def draw_zone_centre(frame):
-    if not SHOW_RETICULE:
+    if not SHOW_RETICULE or MODE == "MINIMAL":
         return frame
     h, w = frame.shape[:2]
     cx, cy = w//2, h//2
@@ -963,37 +1022,42 @@ while True:
     else:
         hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
-    # Zone A - Données système
+    # Zone A - Donnees systeme
     hud = draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display)
 
-    # Zone B - Boussole et altimètre
-    hud = draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+    if MODE != "OFF":
+        # Zone B - Boussole et altimetre
+        hud = draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
 
-    # Zone C - Navigation GPS et minimap
-    if minimap_cache is None or abs(gps.lat - minimap_last_lat) > 0.0001 or abs(gps.lon - minimap_last_lon) > 0.0001:
-        minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=390)
-        minimap_last_lat = gps.lat
-        minimap_last_lon = gps.lon
-    hud[60:450, HUD_W-390:HUD_W] = minimap_cache
+        # Zone C - Navigation GPS et minimap
+        if MODE in MINIMAP_SIZE:
+            ms = MINIMAP_SIZE[MODE]
+            if minimap_cache is None or minimap_cache.shape[0] != ms or abs(gps.lat - minimap_last_lat) > 0.0001 or abs(gps.lon - minimap_last_lon) > 0.0001:
+                minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=ms)
+                minimap_last_lat = gps.lat
+                minimap_last_lon = gps.lon
+            hud[60:60+ms, HUD_W-ms:HUD_W] = minimap_cache
 
-    # Zone Centre - réticule et horizon artificiel
-    hud = draw_zone_centre(hud)
+        # Zone Centre - reticule et horizon artificiel
+        hud = draw_zone_centre(hud)
+        hud = draw_poi(hud, imu.yaw, imu.pitch)
 
-    # Zone D/E - Flèches d'alerte
-    hud = draw_zone_d(hud, now_t - alert_l_time < ALERT_DURATION)
-    hud = draw_zone_e(hud, now_t - alert_r_time < ALERT_DURATION, radar.targets)
+        # Zone D/E - Fleches d alerte
+        hud = draw_zone_d(hud, now_t - alert_l_time < ALERT_DURATION)
+        hud = draw_zone_e(hud, now_t - alert_r_time < ALERT_DURATION, radar.targets)
 
-    # Zone G - OCR
-    if ACTIVATE_OCR and count % 150 == 0:
-        if cam_left and cam_left.frame is not None: ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
-    ocr.poll()
-    if SHOW_OCR:
-        hud = draw_zone_g(hud, ocr.text)
+        if MODE != "MINIMAL":
+            # Zone G - OCR
+            if ACTIVATE_OCR and count % 150 == 0:
+                if cam_left and cam_left.frame is not None: ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
+            ocr.poll()
+            if SHOW_OCR:
+                hud = draw_zone_g(hud, ocr.text)
 
-    # Zone H - Données environnement
-    hud = draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+            # Zone H - Donnees environnement
+            hud = draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
 
-    # Zone I — Alertes critiques
+    # Zone I - Alertes critiques (tous modes)
     if bme.gas > 0 and bme.gas < SEUIL_RES_GAS:
         hud = draw_zone_i(hud, "!!! ALERTE GAZ !!!")
     if bme.temperature > SEUIL_TEMP_EXT:
@@ -1044,6 +1108,20 @@ while True:
             time.sleep(0.5)
             NIGHT_VISION = False
             print("Vision nocturne OFF")
+    elif key in (ord('1'), ord('2'), ord('3'), ord('4')):
+        MODE = MODES[key - ord('1')]
+        minimap_cache = None
+        print("Mode:", MODE)
+    elif key == ord('m'):
+        MODE = MODES[(MODES.index(MODE) + 1) % len(MODES)]
+        minimap_cache = None
+        print("Mode:", MODE)
+    elif key == ord('v'):
+        poi = {"yaw": imu.yaw, "pitch": imu.pitch, "t": time.time()}
+        print("POI verrouille yaw=%.1f pitch=%.1f" % (imu.yaw, imu.pitch))
+    elif key == ord('c'):
+        poi = None
+        print("POI efface")
     elif key == ord('s'):
         cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', hud)
         print("Capture sauvegardée")
