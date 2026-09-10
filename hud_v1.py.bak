@@ -31,9 +31,9 @@ import struct
 #      |            |      |
 #---------------------------
 
-# Zone A - Infos système (heure/date/FPS/latence/écran droit ou gauche)
+# Zone A - Navigation GPS + minimap
 # Zone B - Boussole + Altimètre
-# Zone C - Navigation GPS + minimap
+# Zone C - Infos système (heure/date/FPS/latence/écran droit ou gauche)
 # Zone D - Alerte mouvement coté gauche
 # Zone E - Alerte mouvement coté droit
 # Zone F - Biodata (Fréquence cardiaque/SPO2/Temperature corporelle)
@@ -282,11 +282,10 @@ class OCRProcess:
 #Thread Camera - Capture via camera
 #-----------------------------------------------------------------------------------
 class CameraThread:
-    def __init__(self, device, width=1280, height=720):
+    def __init__(self, device):
         self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         self.cap.set(cv2.CAP_PROP_FPS, 30)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.frame = None
@@ -306,29 +305,6 @@ class CameraThread:
     def stop(self):
         self.running = False
         self.cap.release()
-
-#-----------------------------------------------------------------------------------
-#Thread INPUT - Entrées clavier SSH
-#-----------------------------------------------------------------------------------
-class KeyboardThread:
-    def __init__(self):
-        self.key = None
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-
-    def update(self):
-        import sys
-        while self.running:
-            line = sys.stdin.readline().strip()
-            if line:
-                self.key = line[0]
-
-    def get(self):
-        k = self.key
-        self.key = None
-        return k
 
 # -------------------------------------------------------------------------------Detection de texte
 def ocr_worker(input_queue, output_queue):
@@ -647,7 +623,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
     h, w = frame.shape[:2]
     # Zone C : haut droite 200x200px
-    x = 10
+    x = w - 195
     y = 10
     color_dim = (0, 150, 0)
     now = datetime.now()
@@ -745,7 +721,7 @@ def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
     
     # Zone H : bas droite 200x200px
     x = w - 200
-    y = h - 320
+    y = h - 200
     
     color = (0, 255, 0)      # vert nominal
     color_dim = (0, 150, 0)
@@ -845,8 +821,6 @@ time.sleep(0.5)
 gps = GPSThread()
 time.sleep(1)
 radar = RadarThread()
-kb = KeyboardThread()
-time.sleep(0.5)
 time.sleep(0.5)
 #----------------------------------------------------------------------------- Initialisation
 count = 0
@@ -879,7 +853,7 @@ night_switch_time = 0
 
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
-cv2.resizeWindow("IPES HUD V1", 1920, 1080)
+cv2.resizeWindow("IPES HUD V1", 2880, 1440)
 
 # ----------------------------------------------------------------------------- Boucle While
 while True:
@@ -906,135 +880,142 @@ while True:
                 NIGHT_VISION = True
                 print("Bascule vision nocturne")
 
-    # Flux OV9281 pour detection de mouvement (independant de l affichage)
-    now_t = time.time()
-    motion_ok = (not NIGHT_VISION) and cam_left.frame is not None and cam_right.frame is not None
-    if motion_ok:
+    # Flux vision classique / vision nocturne
+    if NIGHT_VISION:
+        if cam_night is None or cam_night.frame is None:
+            continue
+        fl = cam_night.frame.copy()
+        fr = cam_night.frame.copy()  # même flux sur les deux yeux
+    else:
+        if cam_left.frame is None or cam_right.frame is None:
+            continue
         fl = cam_left.frame.copy()
         fr = cam_right.frame.copy()
 
-        if len(fl.shape) == 2:
-            fl = cv2.cvtColor(fl, cv2.COLOR_GRAY2BGR)
-        if len(fr.shape) == 2:
-            fr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
+    if len(fl.shape) == 2:
+        fl = cv2.cvtColor(fl, cv2.COLOR_GRAY2BGR)
+    if len(fr.shape) == 2:
+        fr = cv2.cvtColor(fr, cv2.COLOR_GRAY2BGR)
 
-        if time.time() - lat_update > 1.0:
-            if not NIGHT_VISION and cam_left.timestamp:
-                lat_display = (time.time() - cam_left.timestamp) * 1000
-            lat_update = time.time()
+    if time.time() - lat_update > 1.0:
+        if not NIGHT_VISION and cam_left.timestamp:
+            lat_display = (time.time() - cam_left.timestamp) * 1000
+        lat_update = time.time()
 
-        # Flux optique en alternance
-        gray_l = cv2.cvtColor(fl, cv2.COLOR_BGR2GRAY)
-        gray_r = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+    # Flux optique en alternance
+    gray_l = cv2.cvtColor(fl, cv2.COLOR_BGR2GRAY)
+    gray_r = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+    now_t = time.time()
 
-        # Bloc detection de mouvement
-        if count % 2 == 0:
-            if prev_gray_l is not None:
-                ml, mr = detect_motion_zone(prev_gray_l, gray_l)
-                if ml > ZONE_SEUIL:
-                    alert_l_time = now_t
-                if mr > ZONE_SEUIL:
-                    alert_r_time = now_t
-            prev_gray_l = gray_l.copy()
-        else:
-            if prev_gray_r is not None:
-                ml, mr = detect_motion_zone(prev_gray_r, gray_r)
-                if ml > ZONE_SEUIL:
-                    alert_l_time = now_t
-                if mr > ZONE_SEUIL:
-                    alert_r_time = now_t
-            prev_gray_r = gray_r.copy()
-
-    # Fond : vidéo nocturne plein écran, ou noir pour transparence
-    if NIGHT_VISION and cam_night is not None and cam_night.frame is not None:
-        hud = cv2.resize(cam_night.frame, (1920, 1080))
-        if len(hud.shape) == 2:
-            hud = cv2.cvtColor(hud, cv2.COLOR_GRAY2BGR)
-        hud = cv2.flip(hud, -1)
+    # Bloc detection de mouvement
+    if count % 2 == 0:
+        if prev_gray_l is not None:
+            ml, mr = detect_motion_zone(prev_gray_l, gray_l)
+            if ml > ZONE_SEUIL:
+                alert_l_time = now_t
+            if mr > ZONE_SEUIL:
+                alert_r_time = now_t
+        prev_gray_l = gray_l.copy()
     else:
-        hud = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        if prev_gray_r is not None:
+            ml, mr = detect_motion_zone(prev_gray_r, gray_r)
+            if ml > ZONE_SEUIL:
+                alert_l_time = now_t
+            if mr > ZONE_SEUIL:
+                alert_r_time = now_t
+        prev_gray_r = gray_r.copy()
 
-    # Zone A - Données système
-    hud = draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display)
+    # Redimensionner l'affichage pour correspondre à l'écran 1440x1440p du module Wisecoco
+    fl = cv2.resize(fl, (1440, 1440))
+    fr = cv2.resize(fr, (1440, 1440))
 
-    # Zone B - Boussole et altimètre
-    hud = draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+    # Retourner le flux camera pour afficher dans le bon sens
+    fl = cv2.flip(fl, -1)
+    fr = cv2.flip(fr, -1)
 
-    # Zone C - Navigation GPS et minimap
+    # Zone A - Navigation GPS et minimap
     if minimap_cache is None or abs(gps.lat - minimap_last_lat) > 0.0001 or abs(gps.lon - minimap_last_lon) > 0.0001:
-        minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=390)
+        minimap_cache = get_minimap(gps.lat, gps.lon, zoom=14, size=250)
         minimap_last_lat = gps.lat
         minimap_last_lon = gps.lon
-    hud[0:390, 1920-390:1920] = minimap_cache
+    fl[0:250, 0:250] = minimap_cache
+    fr[0:250, 0:250] = minimap_cache
 
+    # Zone B - Boussole et altimètre
+    fl = draw_zone_b(fl, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+    fr = draw_zone_b(fr, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+
+    # Zone C - Données système
+    fl = draw_zone_c(fl, fps, "ECRAN GAUCHE" if DEBUG else "", jetson_temp, cpu_percent, lat_display)
+    fr = draw_zone_c(fr, fps, "ECRAN DROIT" if DEBUG else "", jetson_temp, cpu_percent, lat_display)
+    
     # Zone Centre - réticule et horizon artificiel
-    hud = draw_zone_centre(hud)
-
+    fl = draw_zone_centre(fl)
+    fr = draw_zone_centre(fr)
+    
     # Zone D/E - Flèches d'alerte
-    hud = draw_zone_d(hud, now_t - alert_l_time < ALERT_DURATION)
-    hud = draw_zone_e(hud, now_t - alert_r_time < ALERT_DURATION, radar.targets)
+    fl = draw_zone_d(fl, now_t - alert_l_time < ALERT_DURATION)
+    fr = draw_zone_d(fr, now_t - alert_l_time < ALERT_DURATION)
+    fl = draw_zone_e(fl, now_t - alert_r_time < ALERT_DURATION, radar.targets)
+    fr = draw_zone_e(fr, now_t - alert_r_time < ALERT_DURATION, radar.targets)
 
     # Zone G - OCR
     if ACTIVATE_OCR and count % 150 == 0:
-        if cam_left and cam_left.frame is not None: ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
+        ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
     ocr.poll()
     if SHOW_OCR:
-        hud = draw_zone_g(hud, ocr.text)
-
-    # Zone H - Données environnement
-    hud = draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
-
-    # Zone I — Alertes critiques
-    if bme.gas > 0 and bme.gas < SEUIL_RES_GAS:
-        hud = draw_zone_i(hud, "!!! ALERTE GAZ !!!")
-    if bme.temperature > SEUIL_TEMP_EXT:
-        hud = draw_zone_i(hud, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
-    if jetson_temp > SEUIL_TEMP_JETSON:
-        hud = draw_zone_i(hud, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
+        fl = draw_zone_g(fl, ocr.text)
+        fr = draw_zone_g(fr, ocr.text)
     
-    # Affichage time stamp
+    # Zone H - Données environnement
+    fl = draw_zone_h(fl, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+    fr = draw_zone_h(fr, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+
+    # Zone I — Alerte critique gaz
+        # Alerte présence gaz
+    if bme.gas > 0 and bme.gas < SEUIL_RES_GAS:
+        fl = draw_zone_i(fl, "!!! ALERTE GAZ !!!")
+        fr = draw_zone_i(fr, "!!! ALERTE GAZ !!!")
+
+        # Alerte température extérieure
+    if bme.temperature > SEUIL_TEMP_EXT:
+        fl = draw_zone_i(fl, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
+        fr = draw_zone_i(fr, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
+
+        # Alerte température Jetson
+    if jetson_temp > SEUIL_TEMP_JETSON:
+        fl = draw_zone_i(fl, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
+        fr = draw_zone_i(fr, f"!!! SURCHAUFFE JETSON {jetson_temp:.0f}C !!!", (0, 0, 255))
+
+    # Affichage timestamp
     if DEBUG:
-        hud = draw_timestamp_debug(hud)
+        fl = draw_timestamp_debug(fl)
+        fr = draw_timestamp_debug(fr)
+
+    # Jonction des deux frames cote à cote
+    composite = np.hstack([fl, fr])
 
     count += 1
     fps = count / (time.time() - t0)
 
-    cv2.imshow("IPES HUD V1", hud)
-
+    # Affichage de la compisition de frame sur sortie vidéo
+    composite = cv2.flip(composite, -1) # Flip horizontal + vertical
+    cv2.imshow("IPES HUD V1", composite)
     # Capture auto après 10 secondes
     if count == 300 and DEBUG:  # ~10sec à 30fps
-        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', hud)
+        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', composite)
         print("Capture sauvegardée !")
 
-    key = cv2.waitKey(1) & 0xFF
-    kb_key = kb.get()
-    if kb_key:
-        key = ord(kb_key)
-    if key == ord('q'):
-        break
-    elif key == ord('n'):
-        if not NIGHT_VISION:
-            cam_left.stop()
-            cam_right.stop()
-            time.sleep(0.5)
-            cam_night = CameraThread(CAM_NIGHT)
-            time.sleep(0.5)
-            NIGHT_VISION = True
-            print("Vision nocturne ON")
-        else:
-            cam_night.stop()
-            cam_night = None
-            time.sleep(0.5)
-            cam_left = CameraThread(CAM_LEFT)
-            cam_right = CameraThread(CAM_RIGHT)
-            time.sleep(0.5)
-            NIGHT_VISION = False
-            print("Vision nocturne OFF")
-    elif key == ord('s'):
-        cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', hud)
-        print("Capture sauvegardée")
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', composite)
+            print(f"Capture sauvegardée")
+            break
 
 print(f"\nFPS pipeline complet : {fps:.1f}")
-if cam_left: cam_left.stop()
-if cam_right: cam_right.stop()
+cam_left.stop()
+cam_right.stop()
 cv2.destroyAllWindows()
