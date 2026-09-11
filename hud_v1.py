@@ -247,6 +247,10 @@ while True:
         cfg.poi = None
         print("POI efface")
 
+    elif key == ord('r'):
+        cfg.RADAR_ON = not cfg.RADAR_ON
+        print("Radar", "ON" if cfg.RADAR_ON else "OFF")
+
     elif key == ord('s'):
         cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', ecran)
         print("Capture sauvegardee")

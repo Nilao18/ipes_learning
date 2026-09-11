@@ -76,6 +76,9 @@ PX_PER_DEG_Y = ECRAN_H / FOV_V
 POI_COLOR = (0, 200, 255)
 poi = None                         # {"yaw":, "pitch":, "t":} ou None
 
+#----------------------------------------------------------------------------- Radar
+RADAR_ON = True                    # affichage radar (touche R, modifie a l'execution)
+
 #----------------------------------------------------------------------------- Seuils d'alerte
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz

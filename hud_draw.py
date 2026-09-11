@@ -276,14 +276,17 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
 
     cv2.putText(frame, cfg.MODE, (x, y+140),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
+    if not cfg.RADAR_ON:
+        cv2.putText(frame, "RADAR OFF", (x, y+170),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 100), 2)
 
     # Debug FPS + latence
     if cfg.DEBUG:
-        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+170),
+        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+200),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, f"LAT:{lat:.0f}ms", (x, y+190),
+        cv2.putText(frame, f"LAT:{lat:.0f}ms", (x, y+220),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, side, (x, y+210),
+        cv2.putText(frame, side, (x, y+240),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
     return frame
 
@@ -379,7 +382,7 @@ def draw_zone_e(frame, alert_active, radar_targets=None):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
     # Cible radar la plus proche, au-dela de 50 cm
-    if radar_targets:
+    if cfg.RADAR_ON and radar_targets:
         dists = [math.hypot(t["x"], t["y"]) for t in radar_targets]
         dists = [d for d in dists if d > 0.5]
         if dists:
