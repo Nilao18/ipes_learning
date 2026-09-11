@@ -171,6 +171,12 @@ class PersonDetector:
             return 0
         return len(self.detections[cote])
 
+    def personnes(self, cote, duree=3.0):
+        """Boites (x, y, l, h, score) de la derniere detection, image redressee ; [] si trop ancienne."""
+        if time.time() - self.horodatage[cote] > duree:
+            return []
+        return self.detections[cote]
+
     def vignette(self, cote, duree=3.0):
         """Imagette de la derniere personne detectee, ou None."""
         if time.time() - self.horodatage[cote] > duree:

@@ -334,7 +334,7 @@ def draw_poi(frame, yaw, pitch):
     return frame
 
 
-def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False):
+def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, det=None):
     """Cadran vue de dessus : toi au centre, avant en haut. Angle 0 = avant, positif = droite."""
     h, w = frame.shape[:2]
     R = cfg.SENTINELLE_R
@@ -379,6 +379,23 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False):
             (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
             cv2.putText(frame, txt, (px - tw // 2, py + 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, couleur, 1)
+
+    # Personnes vues par les cameras laterales : carres creux (position estimee)
+    # Direction : image redressee, a droite de l'image = vers l'avant pour la camera gauche,
+    # vers l'arriere pour la droite. Distance : taille apparente d'une personne debout.
+    if det is not None:
+        for cote, axe in (("L", -90.0), ("R", 90.0)):
+            for (x, y, bw, bh, _) in det.personnes(cote):
+                angle = axe + math.degrees(math.atan((x + bw / 2 - cfg.CAM_W / 2) / cfg.CAM_FX))
+                dist = cfg.CAM_FX * cfg.TAILLE_PERSONNE / max(bh, 1)
+                coupee = y <= 2 or y + bh >= cfg.CAM_H - 2   # tronquee : plus proche qu'estime
+                px, py = point(angle, dist)
+                couleur = (0, 0, 255) if dist < 2.0 else orange
+                cv2.rectangle(frame, (px - 6, py - 6), (px + 6, py + 6), couleur, 2)
+                txt = ("<" if coupee else "~") + ("%.1fm" % dist if dist < 2.0 else "%.0fm" % dist)
+                (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.putText(frame, txt, (px - tw // 2, py + 22),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, couleur, 1)
     return frame
 
 

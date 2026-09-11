@@ -174,7 +174,8 @@ while True:
         if cfg.MODE == "SENTINELLE":
             hud = draw.draw_sentinelle(hud, radar.targets,
                                        now_t - alert_l_time < cfg.ALERT_DURATION,
-                                       now_t - alert_r_time < cfg.ALERT_DURATION)
+                                       now_t - alert_r_time < cfg.ALERT_DURATION,
+                                       detector)
 
         if cfg.MODE in cfg.MODES_COMPLETS:
             # Zone G - OCR

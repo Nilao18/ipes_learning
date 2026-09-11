@@ -85,7 +85,10 @@ RADAR_ON = True                    # affichage radar (touche R, modifie a l'exec
 #----------------------------------------------------------------------------- Mode SENTINELLE
 SENTINELLE_R = 110                 # rayon du cadran (px)
 SENTINELLE_PORTEE = 6.0            # distance representee au bord du cadran (m)
-CAM_HFOV = 70.0                    # champ horizontal OV9281 (fx=906 px sur 1280 px, calibration)
+CAM_W, CAM_H = 1280, 720           # resolution de capture des OV9281 (CameraThread)
+CAM_FX = 906.0                     # focale en px (calibration K_ov9281, 1280x800)
+CAM_HFOV = 70.0                    # champ horizontal = 2*atan(640/906)
+TAILLE_PERSONNE = 1.7              # hauteur supposee d'une personne debout (m)
 
 #----------------------------------------------------------------------------- Seuils d'alerte
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
