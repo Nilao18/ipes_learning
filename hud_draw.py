@@ -388,7 +388,8 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
             for (x, y, bw, bh, _) in det.personnes(cote):
                 angle = axe + math.degrees(math.atan((x + bw / 2 - cfg.CAM_W / 2) / cfg.CAM_FX))
                 dist = cfg.CAM_FX * cfg.TAILLE_PERSONNE / max(bh, 1)
-                coupee = y <= 2 or y + bh >= cfg.CAM_H - 2   # tronquee : plus proche qu'estime
+                coupee = (y <= 2 or y + bh >= cfg.CAM_H - 2          # coupee par le bord
+                          or bh < cfg.RATIO_ENTIER * bw)        # ou masquee : plus proche qu'estime
                 px, py = point(angle, dist)
                 couleur = (0, 0, 255) if dist < 2.0 else orange
                 cv2.rectangle(frame, (px - 6, py - 6), (px + 6, py + 6), couleur, 2)

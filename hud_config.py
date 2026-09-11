@@ -89,6 +89,7 @@ CAM_W, CAM_H = 1280, 720           # resolution de capture des OV9281 (CameraThr
 CAM_FX = 906.0                     # focale en px (calibration K_ov9281, 1280x800)
 CAM_HFOV = 70.0                    # champ horizontal = 2*atan(640/906)
 TAILLE_PERSONNE = 1.7              # hauteur supposee d'une personne debout (m)
+RATIO_ENTIER = 2.5                 # hauteur/largeur mini d une personne entiere (debout ~3.0, jambes masquees ~2.3)
 
 #----------------------------------------------------------------------------- Seuils d'alerte
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
