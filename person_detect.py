@@ -6,6 +6,7 @@ import multiprocessing as mp
 import numpy as np
 
 MODEL_PATH = os.path.expanduser('~/ipes/models/yolov8n-person.onnx')
+TRT_CACHE = os.path.expanduser('~/ipes/models/trt_cache')   # moteurs TensorRT compiles (1re construction ~8 min)
 INPUT_SIZE = 640
 CONF_SEUIL = 0.25
 IOU_SEUIL = 0.45
@@ -99,8 +100,13 @@ def _worker(entree, sortie):
     import cv2
     opts = ort.SessionOptions()
     opts.intra_op_num_threads = 2
-    session = ort.InferenceSession(
-        MODEL_PATH, opts, providers=['CPUExecutionProvider'])
+    os.makedirs(TRT_CACHE, exist_ok=True)
+    session = ort.InferenceSession(MODEL_PATH, opts, providers=[
+        ('TensorrtExecutionProvider', {'trt_fp16_enable': True,
+                                       'trt_engine_cache_enable': True,
+                                       'trt_engine_cache_path': TRT_CACHE}),
+        'CUDAExecutionProvider', 'CPUExecutionProvider'])
+    print("Detecteur personnes :", session.get_providers()[0], flush=True)
     nom_entree = session.get_inputs()[0].name
     while True:
         item = entree.get()
