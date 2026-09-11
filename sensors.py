@@ -151,8 +151,8 @@ class RadarThread:
         print("Radar OK")
 
     def _decode_coord(self, raw):
-        """Format LD2450 : bit 15 = signe, 15 bits de valeur en mm -> metres."""
-        sign = -1 if (raw & 0x8000) else 1
+        """Format LD2450 : bit 15 a 1 = positif (inverse du complement a 2), 15 bits en mm -> metres."""
+        sign = 1 if (raw & 0x8000) else -1
         return sign * (raw & 0x7FFF) / 1000.0
 
     def update(self):
