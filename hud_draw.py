@@ -293,18 +293,6 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
     return frame
 
 
-# --------------------------------------------------------------------------------Affichage de la Zone D
-def draw_zone_d(frame, alert_active):
-    if not alert_active:
-        return frame
-    h, w = frame.shape[:2]
-    cy = h // 2
-    cv2.arrowedLine(frame, (190, cy), (30, cy), (0, 0, 255), 8, tipLength=0.4)
-    cv2.putText(frame, "PERS", (20, cy - 30),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-    return frame
-
-
 # --------------------------------------------------------------------------------Affichage de la Zone CENTRE
 def draw_poi(frame, yaw, pitch):
     """Cercle de verrouillage POI, ou fleche de bord si hors champ."""
@@ -346,6 +334,32 @@ def draw_poi(frame, yaw, pitch):
     return frame
 
 
+_bande_cache = {}
+
+
+def _bande_danger(h, w):
+    """Motif rayures diagonales orange/noir (le noir est transparent dans les Xreal)."""
+    if (h, w) not in _bande_cache:
+        yy, xx = np.mgrid[0:h, 0:w]
+        motif = np.zeros((h, w, 3), dtype=np.uint8)
+        motif[((xx + yy) // cfg.ALERT_STRIPE) % 2 == 0] = (0, 165, 255)
+        _bande_cache[(h, w)] = motif
+    return _bande_cache[(h, w)]
+
+
+def draw_alert_bars(ecran, ox, oy, hud_w, hud_h, gauche, droite):
+    """Bandes d'alerte laterales, symetriques par rapport a la zone utile du HUD."""
+    bw, gap = cfg.ALERT_BAR_W, cfg.ALERT_BAR_GAP
+    motif = _bande_danger(hud_h, bw)
+    if gauche:
+        x = ox - gap - bw
+        ecran[oy:oy + hud_h, x:x + bw] = motif
+    if droite:
+        x = ox + hud_w + gap
+        ecran[oy:oy + hud_h, x:x + bw] = motif
+    return ecran
+
+
 def draw_vignettes(frame, det):
     """Imagettes des personnes detectees, cote correspondant."""
     h, w = frame.shape[:2]
@@ -357,6 +371,10 @@ def draw_vignettes(frame, det):
         frame[vy:vy + 160, vx:vx + 120] = v
         cv2.rectangle(frame, (vx - 2, vy - 2), (vx + 122, vy + 162),
                       (0, 165, 255), 2)
+        txt = f"{det.compte(cote)} PERS"
+        (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.putText(frame, txt, (vx + (120 - tw) // 2, vy + 190),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
     return frame
 
 
@@ -373,15 +391,9 @@ def draw_zone_centre(frame):
 
 
 # --------------------------------------------------------------------------------Affichage de la Zone E
-def draw_zone_e(frame, alert_active, radar_targets=None):
+def draw_zone_e(frame, radar_targets=None):
     h, w = frame.shape[:2]
     cy = h // 2
-
-    # Fleche alerte personne
-    if alert_active:
-        cv2.arrowedLine(frame, (w-190, cy), (w-30, cy), (0, 0, 255), 8, tipLength=0.4)
-        cv2.putText(frame, "PERS", (w-70, cy-30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
 
     # Cible radar la plus proche, au-dela de 50 cm
     if cfg.RADAR_ON and radar_targets:
@@ -390,7 +402,7 @@ def draw_zone_e(frame, alert_active, radar_targets=None):
         if dists:
             d = min(dists)
             couleur = (0, 0, 255) if d < 2.0 else (0, 165, 255)
-            cv2.putText(frame, "RADAR %.1fm" % d, (w-250, cy + 90),
+            cv2.putText(frame, "RADAR %.1fm" % d, (w-250, cy + 140),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
     return frame
 

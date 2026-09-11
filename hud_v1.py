@@ -166,9 +166,8 @@ while True:
         hud = draw.draw_zone_centre(hud)
         hud = draw.draw_poi(hud, imu.yaw, imu.pitch)
 
-        # Zone D/E - Fleches d'alerte et vignettes
-        hud = draw.draw_zone_d(hud, now_t - alert_l_time < cfg.ALERT_DURATION)
-        hud = draw.draw_zone_e(hud, now_t - alert_r_time < cfg.ALERT_DURATION, radar.targets)
+        # Zone D/E - Distance radar et vignettes des personnes detectees
+        hud = draw.draw_zone_e(hud, radar.targets)
         hud = draw.draw_vignettes(hud, detector)
 
         if cfg.MODE != "MINIMAL":
@@ -203,13 +202,11 @@ while True:
     oy = (cfg.ECRAN_H - HUD_H) // 2
     ecran[oy:oy+HUD_H, ox:ox+HUD_W] = hud
 
-    # Barres laterales d'alerte dans les marges (hors zone utile)
+    # Bandes d'alerte laterales dans les marges, symetriques autour du HUD
     if cfg.MODE != "OFF":
-        if now_t - alert_l_time < cfg.ALERT_DURATION:
-            cv2.rectangle(ecran, (0, 0), (12, cfg.ECRAN_H), (0, 165, 255), -1)
-        if now_t - alert_r_time < cfg.ALERT_DURATION:
-            cv2.rectangle(ecran, (cfg.ECRAN_W - 12, 0),
-                          (cfg.ECRAN_W, cfg.ECRAN_H), (0, 165, 255), -1)
+        ecran = draw.draw_alert_bars(ecran, ox, oy, HUD_W, HUD_H,
+                                     now_t - alert_l_time < cfg.ALERT_DURATION,
+                                     now_t - alert_r_time < cfg.ALERT_DURATION)
 
     cv2.imshow("IPES HUD V1", ecran)
 

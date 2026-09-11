@@ -81,6 +81,9 @@ RADAR_ON = True                    # affichage radar (touche R, modifie a l'exec
 
 #----------------------------------------------------------------------------- Seuils d'alerte
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
+ALERT_BAR_W = 12          # largeur des bandes d'alerte laterales (px)
+ALERT_BAR_GAP = 20        # ecart entre bande et bord de la zone utile (px)
+ALERT_STRIPE = 12         # largeur d'une rayure diagonale (px)
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz
 SEUIL_TEMP_EXT = 35       # degres C exterieurs
 SEUIL_TEMP_JETSON = 75    # degres C SoC
