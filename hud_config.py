@@ -97,7 +97,9 @@ ALERT_BAR_W = 12          # largeur des bandes d'alerte laterales (px)
 ALERT_BAR_GAP = 20        # ecart entre bande et bord de la zone utile (px)
 COL_G = NET_G + ALERT_BAR_W + ALERT_BAR_GAP  # colonne de contenu gauche, apres la bande
 ALERT_STRIPE = 12         # largeur d'une rayure diagonale (px)
-DETECT_PERIOD = 0.5       # s entre deux inferences, alternees G/D (0.5 = 1 Hz par cote)
+DETECT_PERIOD = 0.25      # s entre deux inferences, alternees G/D (0.25 = 2 Hz par cote)
+CAM_PERIOD = 0.5          # s entre deux captures OV9281 (0.5 = 2 images/s)
+OCR_EVERY = 60            # analyse OCR toutes les N images du HUD
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz
 SEUIL_TEMP_EXT = 35       # degres C exterieurs
 SEUIL_TEMP_JETSON = 75    # degres C SoC

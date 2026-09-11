@@ -8,7 +8,7 @@ import numpy as np
 MODEL_PATH = os.path.expanduser('~/ipes/models/yolo11s.onnx')   # COCO 80 classes, export Ultralytics
 TRT_CACHE = os.path.expanduser('~/ipes/models/trt_cache')   # moteurs TensorRT compiles (1re construction ~8 min)
 INPUT_SIZE = 640
-CONF_SEUIL = 0.25
+CONF_SEUIL = 0.40   # YOLO11s : vraies personnes 0.77-0.93, faux positif observe 0.28
 IOU_SEUIL = 0.45
 
 

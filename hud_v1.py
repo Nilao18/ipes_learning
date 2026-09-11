@@ -28,9 +28,9 @@ import hud_draw as draw
 
 
 #----------------------------------------------------------------------------- Instanciations
-cam_left = CameraThread(cfg.CAM_LEFT, period=1.0)
+cam_left = CameraThread(cfg.CAM_LEFT, period=cfg.CAM_PERIOD)
 time.sleep(1)
-cam_right = CameraThread(cfg.CAM_RIGHT, period=1.0)
+cam_right = CameraThread(cfg.CAM_RIGHT, period=cfg.CAM_PERIOD)
 time.sleep(1)
 cam_night = None
 
@@ -179,7 +179,7 @@ while True:
 
         if cfg.MODE in cfg.MODES_COMPLETS:
             # Zone G - OCR
-            if cfg.ACTIVATE_OCR and count % 150 == 0:
+            if cfg.ACTIVATE_OCR and count % cfg.OCR_EVERY == 0:
                 if cam_left and cam_left.frame is not None:
                     ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
             ocr.poll()
@@ -240,8 +240,8 @@ while True:
             cam_night.stop()
             cam_night = None
             time.sleep(0.5)
-            cam_left = CameraThread(cfg.CAM_LEFT, period=1.0)
-            cam_right = CameraThread(cfg.CAM_RIGHT, period=1.0)
+            cam_left = CameraThread(cfg.CAM_LEFT, period=cfg.CAM_PERIOD)
+            cam_right = CameraThread(cfg.CAM_RIGHT, period=cfg.CAM_PERIOD)
             time.sleep(0.5)
             cfg.NIGHT_VISION = False
             print("Vision nocturne OFF")
