@@ -32,8 +32,8 @@
 
 #----------------------------------------------------------------------------- Affichage elements
 DEBUG = False        # True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B)
-SHOW_RETICULE = True # True pour afficher le reticule central (Zone CENTRE)
-SHOW_HORIZON = False # True pour afficher l'horizon artificiel (Zone CENTRE)
+SHOW_RETICULE = True # reticule central (Zone CENTRE) - touche X, modifie a l'execution
+SHOW_HORIZON = False # horizon artificiel (Zone CENTRE) - touche H, modifie a l'execution
 SHOW_COMPASS = True  # True pour afficher la boussole (Zone B)
 SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B)
 SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz

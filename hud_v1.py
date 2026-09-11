@@ -12,7 +12,7 @@
 #   q  quitter          n  bascule vision nocturne     s  capture ecran
 #   1-4 mode direct     m  mode suivant
 #   v  verrouiller POI  c  effacer POI
-#   r  radar ON/OFF
+#   r  radar ON/OFF     x  reticule ON/OFF             h  horizon ON/OFF
 import time
 
 import cv2
@@ -260,6 +260,14 @@ while True:
     elif key == ord('r'):
         cfg.RADAR_ON = not cfg.RADAR_ON
         print("Radar", "ON" if cfg.RADAR_ON else "OFF")
+
+    elif key == ord('x'):
+        cfg.SHOW_RETICULE = not cfg.SHOW_RETICULE
+        print("Reticule", "ON" if cfg.SHOW_RETICULE else "OFF")
+
+    elif key == ord('h'):
+        cfg.SHOW_HORIZON = not cfg.SHOW_HORIZON
+        print("Horizon", "ON" if cfg.SHOW_HORIZON else "OFF")
 
     elif key == ord('s'):
         cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', ecran)
