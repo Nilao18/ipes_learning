@@ -10,7 +10,7 @@
 #
 # Touches (terminal SSH, valider par Entree) :
 #   q  quitter          n  bascule vision nocturne     s  capture ecran
-#   1-4 mode direct     m  mode suivant
+#   1-5 mode direct     m  mode suivant                (5 = SENTINELLE)
 #   v  verrouiller POI  c  effacer POI
 #   r  radar ON/OFF     x  reticule ON/OFF             h  horizon ON/OFF
 import time
@@ -170,7 +170,13 @@ while True:
         hud = draw.draw_zone_e(hud, radar.targets)
         hud = draw.draw_vignettes(hud, detector)
 
-        if cfg.MODE != "MINIMAL":
+        # Mode SENTINELLE - cadran vue de dessus
+        if cfg.MODE == "SENTINELLE":
+            hud = draw.draw_sentinelle(hud, radar.targets,
+                                       now_t - alert_l_time < cfg.ALERT_DURATION,
+                                       now_t - alert_r_time < cfg.ALERT_DURATION)
+
+        if cfg.MODE in cfg.MODES_COMPLETS:
             # Zone G - OCR
             if cfg.ACTIVATE_OCR and count % 150 == 0:
                 if cam_left and cam_left.frame is not None:
@@ -239,7 +245,7 @@ while True:
             cfg.NIGHT_VISION = False
             print("Vision nocturne OFF")
 
-    elif key in (ord('1'), ord('2'), ord('3'), ord('4')):
+    elif key in (ord('1'), ord('2'), ord('3'), ord('4'), ord('5')):
         cfg.MODE = cfg.MODES[key - ord('1')]
         minimap_cache = None
         print("Mode:", cfg.MODE)

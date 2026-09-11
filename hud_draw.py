@@ -152,7 +152,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                       (cx - compass_w//2 - 5, 0),
                       (cx + compass_w//2 + 5, 95),
                       (0, 0, 0), -1)
-    if cfg.SHOW_ALTITUDE and cfg.MODE != "MINIMAL":
+    if cfg.SHOW_ALTITUDE and cfg.MODE in cfg.MODES_COMPLETS:
         # Fond derriere curseur gauche (pieds)
         cv2.rectangle(overlay,
                       (cx - compass_w//2 - 110, 0),
@@ -185,7 +185,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     compass_left  = cx - compass_w//2 - 10
     compass_right = cx + compass_w//2 + 10
 
-    if cfg.SHOW_ALTITUDE and cfg.MODE != "MINIMAL":
+    if cfg.SHOW_ALTITUDE and cfg.MODE in cfg.MODES_COMPLETS:
         cv2.putText(frame, "FT", (compass_left - 60, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
         cv2.putText(frame, "M", (compass_right + 50, 100),
@@ -265,7 +265,7 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
 
     # (texte, echelle, couleur, ecart avec la ligne precedente)
     lignes = [(now.strftime("%H:%M:%S"), 0.8, color_dim, 20)]
-    if cfg.MODE not in ("MINIMAL", "OFF"):
+    if cfg.MODE in cfg.MODES_COMPLETS:
         temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
         lignes += [(now.strftime("%d/%m/%Y"), 0.6, color_dim, 25),
                    (f"CPU:{cpu:.0f}%", 0.6, color_dim, 25),
@@ -334,6 +334,54 @@ def draw_poi(frame, yaw, pitch):
     return frame
 
 
+def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False):
+    """Cadran vue de dessus : toi au centre, avant en haut. Angle 0 = avant, positif = droite."""
+    h, w = frame.shape[:2]
+    R = cfg.SENTINELLE_R
+    cx, cy = w // 2, h - R - 20
+    pm = R / cfg.SENTINELLE_PORTEE                     # pixels par metre
+    vert, gris, orange = (0, 150, 0), (90, 90, 90), (0, 165, 255)
+
+    def point(angle, dist):
+        a = math.radians(angle)
+        r = min(dist, cfg.SENTINELLE_PORTEE) * pm
+        return int(cx + r * math.sin(a)), int(cy - r * math.cos(a))
+
+    def arc(centre, ouverture, couleur):
+        # angles OpenCV : 0 = droite, sens horaire -> angle cadran - 90
+        cv2.ellipse(frame, (cx, cy), (R, R), 0, centre - ouverture / 2 - 90,
+                    centre + ouverture / 2 - 90, couleur, 4)
+
+    # Anneaux tous les 2 m et contour
+    for d in range(2, int(cfg.SENTINELLE_PORTEE), 2):
+        cv2.circle(frame, (cx, cy), int(d * pm), (0, 70, 0), 1)
+    cv2.circle(frame, (cx, cy), R, (0, 90, 0), 1)
+
+    # Couverture capteurs sur le contour (absence d'arc = angle mort)
+    arc(0, cfg.RADAR_FOV, vert if cfg.RADAR_ON else gris)
+    arc(-90, cfg.CAM_HFOV, orange if alerte_g else vert)
+    arc(90, cfg.CAM_HFOV, orange if alerte_d else vert)
+
+    # Toi : triangle pointe vers l'avant
+    pts = np.array([(cx, cy - 10), (cx - 7, cy + 7), (cx + 7, cy + 7)], np.int32)
+    cv2.fillPoly(frame, [pts], (255, 255, 255))
+
+    # Cibles radar : x negatif = droite du radar (valide en test)
+    if cfg.RADAR_ON and radar_targets:
+        for t in radar_targets:
+            dist = math.hypot(t["x"], t["y"])
+            if dist <= 0.5:
+                continue
+            px, py = point(math.degrees(math.atan2(-t["x"], t["y"])), dist)
+            couleur = (0, 0, 255) if dist < 2.0 else orange
+            cv2.circle(frame, (px, py), 6, couleur, -1)
+            txt = "%.1fm" % dist
+            (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+            cv2.putText(frame, txt, (px - tw // 2, py + 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, couleur, 1)
+    return frame
+
+
 _bande_cache = {}
 
 
@@ -379,7 +427,7 @@ def draw_vignettes(frame, det):
 
 
 def draw_zone_centre(frame):
-    if not cfg.SHOW_RETICULE or cfg.MODE == "MINIMAL":
+    if not cfg.SHOW_RETICULE or cfg.MODE not in cfg.MODES_COMPLETS:
         return frame
     h, w = frame.shape[:2]
     cx, cy = w//2, h//2
@@ -396,7 +444,7 @@ def draw_zone_e(frame, radar_targets=None):
     cy = h // 2
 
     # Cible radar la plus proche, au-dela de 50 cm
-    if cfg.RADAR_ON and radar_targets:
+    if cfg.RADAR_ON and radar_targets and cfg.MODE != "SENTINELLE":
         dists = [math.hypot(t["x"], t["y"]) for t in radar_targets]
         dists = [d for d in dists if d > 0.5]
         if dists:

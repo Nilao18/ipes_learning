@@ -64,7 +64,8 @@ MARGE_Y = 0.05   # marges haute et basse (troncature)
 NET_G = 110      # debut de la zone nette a gauche, en px depuis le bord gauche de la zone utile
 
 #----------------------------------------------------------------------------- Modes HUD
-MODES = ["NORMAL", "NAV", "MINIMAL", "OFF"]
+MODES = ["NORMAL", "NAV", "MINIMAL", "OFF", "SENTINELLE"]
+MODES_COMPLETS = ("NORMAL", "NAV")               # modes avec toutes les donnees (les autres = base minimale)
 MODE = "NORMAL"                                  # modifie a l'execution
 MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}       # taille minimap par mode
 COMPASS_DIV = {"NORMAL": 2, "NAV": 3}            # diviseur largeur boussole par mode
@@ -78,7 +79,13 @@ POI_COLOR = (0, 200, 255)
 poi = None                         # {"yaw":, "pitch":, "t":} ou None
 
 #----------------------------------------------------------------------------- Radar
+RADAR_FOV = 120.0                  # ouverture azimutale LD2450 (degres)
 RADAR_ON = True                    # affichage radar (touche R, modifie a l'execution)
+
+#----------------------------------------------------------------------------- Mode SENTINELLE
+SENTINELLE_R = 110                 # rayon du cadran (px)
+SENTINELLE_PORTEE = 6.0            # distance representee au bord du cadran (m)
+CAM_HFOV = 70.0                    # champ horizontal OV9281 (fx=906 px sur 1280 px, calibration)
 
 #----------------------------------------------------------------------------- Seuils d'alerte
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
