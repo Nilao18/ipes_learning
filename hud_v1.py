@@ -12,6 +12,7 @@
 #   q  quitter          n  bascule vision nocturne     s  capture ecran
 #   1-4 mode direct     m  mode suivant
 #   v  verrouiller POI  c  effacer POI
+#   r  radar ON/OFF
 import time
 
 import cv2
@@ -72,6 +73,18 @@ night_switch_time = 0
 cv2.namedWindow("IPES HUD V1", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("IPES HUD V1", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 cv2.resizeWindow("IPES HUD V1", cfg.ECRAN_W, cfg.ECRAN_H)
+
+# Curseur souris masque via XFixes : le serveur X le reaffiche seul a la
+# deconnexion du client, donc meme en cas de crash du HUD
+try:
+    from Xlib import display as xdisplay
+    xdisp = xdisplay.Display()
+    xdisp.xfixes_query_version()
+    xdisp.screen().root.xfixes_hide_cursor()
+    xdisp.sync()
+except Exception as e:
+    xdisp = None
+    print("Curseur non masque :", e)
 
 # ----------------------------------------------------------------------------- Boucle While
 while True:
@@ -264,4 +277,7 @@ if cam_right:
 if cam_night:
     cam_night.stop()
 detector.stop()
+if xdisp:
+    xdisp.screen().root.xfixes_show_cursor()
+    xdisp.close()
 cv2.destroyAllWindows()

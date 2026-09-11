@@ -258,36 +258,29 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
 def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
+    """Donnees systeme (Zone A) : lignes empilees, une ligne masquee ne laisse pas de trou."""
     x, y = 110, 10
     color_dim = (0, 150, 0)
     now = datetime.now()
 
-    cv2.putText(frame, now.strftime("%H:%M:%S"), (x, y+20),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-
+    # (texte, echelle, couleur, ecart avec la ligne precedente)
+    lignes = [(now.strftime("%H:%M:%S"), 0.8, color_dim, 20)]
     if cfg.MODE not in ("MINIMAL", "OFF"):
-        cv2.putText(frame, now.strftime("%d/%m/%Y"), (x, y+50),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
         temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
-        cv2.putText(frame, f"CPU:{cpu:.0f}%", (x, y+80),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, color_dim, 2)
-        cv2.putText(frame, f"T:{jetson_temp:.0f}C", (x, y+110),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, temp_color, 2)
-
-    cv2.putText(frame, cfg.MODE, (x, y+140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
+        lignes += [(now.strftime("%d/%m/%Y"), 0.8, color_dim, 30),
+                   (f"CPU:{cpu:.0f}%", 0.8, color_dim, 30),
+                   (f"T:{jetson_temp:.0f}C", 0.8, temp_color, 30)]
+    lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
     if not cfg.RADAR_ON:
-        cv2.putText(frame, "RADAR OFF", (x, y+170),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 100), 2)
-
-    # Debug FPS + latence
+        lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
     if cfg.DEBUG:
-        cv2.putText(frame, f"FPS:{fps:.1f}", (x, y+200),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, f"LAT:{lat:.0f}ms", (x, y+220),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
-        cv2.putText(frame, side, (x, y+240),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_dim, 2)
+        lignes += [(f"FPS:{fps:.1f}", 0.6, color_dim, 30),
+                   (f"LAT:{lat:.0f}ms", 0.6, color_dim, 20),
+                   (side, 0.6, color_dim, 20)]
+
+    for texte, echelle, couleur, ecart in lignes:
+        y += ecart
+        cv2.putText(frame, texte, (x, y), cv2.FONT_HERSHEY_SIMPLEX, echelle, couleur, 2)
     return frame
 
 
