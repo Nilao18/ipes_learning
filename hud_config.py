@@ -61,6 +61,7 @@ ECRAN_H = 1080
 MARGE_G = 0.10   # marge gauche (bord flou, IPD superieur aux lunettes)
 MARGE_D = 0.05   # marge droite
 MARGE_Y = 0.05   # marges haute et basse (troncature)
+NET_G = 110      # debut de la zone nette a gauche, en px depuis le bord gauche de la zone utile
 
 #----------------------------------------------------------------------------- Modes HUD
 MODES = ["NORMAL", "NAV", "MINIMAL", "OFF"]
@@ -83,6 +84,7 @@ RADAR_ON = True                    # affichage radar (touche R, modifie a l'exec
 ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
 ALERT_BAR_W = 12          # largeur des bandes d'alerte laterales (px)
 ALERT_BAR_GAP = 20        # ecart entre bande et bord de la zone utile (px)
+COL_G = NET_G + ALERT_BAR_W + ALERT_BAR_GAP  # colonne de contenu gauche, apres la bande
 ALERT_STRIPE = 12         # largeur d'une rayure diagonale (px)
 DETECT_PERIOD = 0.5       # s entre deux inferences, alternees G/D (0.5 = 1 Hz par cote)
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz

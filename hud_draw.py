@@ -259,7 +259,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 # --------------------------------------------------------------------------------Affichage de la Zone C
 def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
     """Donnees systeme (Zone A) : lignes empilees, une ligne masquee ne laisse pas de trou."""
-    x, y = 110, 10
+    x, y = cfg.COL_G, 10
     color_dim = (0, 150, 0)
     now = datetime.now()
 
@@ -348,11 +348,11 @@ def _bande_danger(h, w):
 
 
 def draw_alert_bars(ecran, ox, oy, hud_w, hud_h, gauche, droite):
-    """Bandes d'alerte laterales, symetriques par rapport a la zone utile du HUD."""
+    """Bandes d'alerte laterales : a gauche au debut de la zone nette, a droite hors zone utile."""
     bw, gap = cfg.ALERT_BAR_W, cfg.ALERT_BAR_GAP
     motif = _bande_danger(hud_h, bw)
     if gauche:
-        x = ox - gap - bw
+        x = ox + cfg.NET_G
         ecran[oy:oy + hud_h, x:x + bw] = motif
     if droite:
         x = ox + hud_w + gap
@@ -364,7 +364,7 @@ def draw_vignettes(frame, det):
     """Imagettes des personnes detectees, cote correspondant."""
     h, w = frame.shape[:2]
     vy = h // 2 - 80
-    for cote, vx in (('L', 15), ('R', w - 135)):
+    for cote, vx in (('L', cfg.COL_G), ('R', w - 135)):
         v = det.vignette(cote)
         if v is None:
             continue
