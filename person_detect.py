@@ -5,7 +5,7 @@ import multiprocessing as mp
 
 import numpy as np
 
-MODEL_PATH = os.path.expanduser('~/ipes/models/yolov8n-person.onnx')
+MODEL_PATH = os.path.expanduser('~/ipes/models/yolo11s.onnx')   # COCO 80 classes, export Ultralytics
 TRT_CACHE = os.path.expanduser('~/ipes/models/trt_cache')   # moteurs TensorRT compiles (1re construction ~8 min)
 INPUT_SIZE = 640
 CONF_SEUIL = 0.25
@@ -50,8 +50,9 @@ def _nms(boxes, scores):
 
 
 def _postprocess(sortie, r, dx, dy, w, h):
-    """Sortie 1x5x8400 -> liste de (x, y, largeur, hauteur, score) en pixels image."""
-    pred = sortie[0][0].T                      # 8400 x 5
+    """Sortie 1x(4+N)x8400 -> liste de (x, y, largeur, hauteur, score) en pixels image.
+    Canaux 0-3 : boite ; canal 4 : score classe 0 = personne (modele COCO ou mono-classe)."""
+    pred = sortie[0][0].T[:, :5]               # 8400 x 5 : on ignore les autres classes
     scores = pred[:, 4]
     masque = scores > CONF_SEUIL
     pred, scores = pred[masque], scores[masque]
