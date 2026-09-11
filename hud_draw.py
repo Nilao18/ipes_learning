@@ -485,7 +485,8 @@ def draw_zone_g(frame, text):
     # Fond opaque derriere le texte uniquement
     cv2.rectangle(frame, (x, y - 10), (x + zone_w, h - 10), (0, 0, 0), -1)
     # Texte style sous-titres
-    cv2.putText(frame, text[:80], (x + 10, y + 40),
+    txt = text if len(text) <= 80 else text[:77] + "..."
+    cv2.putText(frame, txt, (x + 10, y + 40),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     return frame
 

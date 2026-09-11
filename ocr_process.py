@@ -10,6 +10,7 @@ def ocr_worker(input_queue, output_queue):
     from onnxtr.models import ocr_predictor
     from onnxtr.io import DocumentFile
     import cv2
+    import re
 
     model = ocr_predictor(
         det_arch="fast_base",
@@ -25,8 +26,10 @@ def ocr_worker(input_queue, output_queue):
             doc = DocumentFile.from_images(tmp)
             result = model(doc)
             text = result.render().strip()
-            lines = [l for l in text.split('\n') if len(l.strip()) > 2]
-            output_queue.put(' | '.join(lines[-2:]) if lines else "")
+            # onnxtr rend les URL en lien markdown [texte](url) : on ne garde que le texte
+            text = re.sub(r'\[([^\]]+)\]\([^)]*\)', r'\1', text)
+            lines = [l.strip() for l in text.split('\n') if len(l.strip()) > 2]
+            output_queue.put(' | '.join(lines))
         except Exception:
             output_queue.put("")
 
