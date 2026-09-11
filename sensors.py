@@ -90,12 +90,60 @@ class BMEThread:
 
 
 #-----------------------------------------------------------------------------------
+# Base des capteurs serie USB (FT232) - reconnexion automatique apres debranchement
+#-----------------------------------------------------------------------------------
+class _SerieUSB:
+    """Un port absent ou perdu ne leve jamais d'exception : le thread retente toutes
+    les SERIE_RECO secondes au lieu de boucler sur l'erreur (un coeur a 100 %)."""
+
+    def _init_serie(self, nom, port, baud, timeout):
+        self.nom, self.port, self.baud, self.timeout = nom, port, baud, timeout
+        self.ser = None
+        self.connecte = False
+        if not self._connecter():
+            print(f"{nom} absent, nouvel essai toutes les {cfg.SERIE_RECO:.0f} s")
+
+    def _connecter(self):
+        try:
+            self.ser = serial.Serial(self.port, self.baud, timeout=self.timeout)
+            self.connecte = True
+            return True
+        except (serial.SerialException, OSError):
+            self.ser, self.connecte = None, False
+            return False
+
+    def _deconnecter(self, e):
+        """Port perdu : fermeture propre et donnees remises a zero (pas de valeurs figees)."""
+        print(f"{self.nom} deconnecte ({e}), reconnexion automatique")
+        try:
+            self.ser.close()
+        except Exception:
+            pass
+        self.ser, self.connecte = None, False
+        self._perte()
+
+    def _attendre_port(self):
+        """True si le port est utilisable ; sinon une tentative puis pause."""
+        if self.ser is not None:
+            return True
+        if self._connecter():
+            print(f"{self.nom} reconnecte")
+            return True
+        time.sleep(cfg.SERIE_RECO)
+        return False
+
+    def stop(self):
+        self.running = False
+        if self.ser is not None:
+            self.ser.close()
+
+
+#-----------------------------------------------------------------------------------
 # Thread GPS (MAX-M10S) - Position en temps reel, NMEA 9600 bauds
 #-----------------------------------------------------------------------------------
-class GPSThread:
+class GPSThread(_SerieUSB):
     def __init__(self):
         print("Init GPS...")
-        self.ser = serial.Serial(cfg.GPS_PORT, 9600, timeout=2)
         self.lat = 47.3941  # position par defaut Tours
         self.lon = 0.6848
         self.alt = 0.0
@@ -103,14 +151,22 @@ class GPSThread:
         self.satellites = 0
         self.hdop = 99.99   # precision horizontale, 99.99 = inconnue
         self.fix = False
+        self._init_serie("GPS", cfg.GPS_PORT, 9600, 2)
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
-        print("GPS OK")
+        print("GPS OK" if self.connecte else "GPS demarre sans port")
+
+    def _perte(self):
+        self.fix = False
+        self.satellites = 0
+        self.hdop = 99.99
 
     def update(self):
         while self.running:
+            if not self._attendre_port():
+                continue
             try:
                 line = self.ser.readline().decode('ascii', errors='replace').strip()
                 if line.startswith('$GNGGA'):
@@ -126,29 +182,32 @@ class GPSThread:
                         self.lat = msg.latitude
                         self.lon = msg.longitude
                         self.speed = float(msg.spd_over_grnd) * 1.852  # kts -> km/h
+            except (serial.SerialException, OSError) as e:
+                self._deconnecter(e)
             except Exception:
-                pass
-
-    def stop(self):
-        self.running = False
-        self.ser.close()
+                pass    # trame NMEA corrompue : on passe a la suivante
 
 
 #-----------------------------------------------------------------------------------
 # Thread HLK-LD2450 - Radar 24 GHz, jusqu'a 3 cibles, coordonnees en metres
 #-----------------------------------------------------------------------------------
-class RadarThread:
+class RadarThread(_SerieUSB):
     def __init__(self):
         print("Init Radar...")
-        self.ser = serial.Serial(cfg.RADAR_PORT, 256000, timeout=1)
         self.targets = []
         self._dist_history = []
         self.smooth_dist = 0.0
+        self._init_serie("Radar", cfg.RADAR_PORT, 256000, 1)
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
-        print("Radar OK")
+        print("Radar OK" if self.connecte else "Radar demarre sans port")
+
+    def _perte(self):
+        self.targets = []           # surtout pas de cibles figees a l'ecran
+        self._dist_history = []
+        self.smooth_dist = 0.0
 
     def _decode_coord(self, raw):
         """Format LD2450 : bit 15 a 1 = positif (inverse du complement a 2), 15 bits en mm -> metres."""
@@ -158,6 +217,9 @@ class RadarThread:
     def update(self):
         buf = bytearray()
         while self.running:
+            if not self._attendre_port():
+                buf = bytearray()
+                continue
             try:
                 buf += self.ser.read(64)
                 # Recherche de l'entete AA FF
@@ -205,12 +267,11 @@ class RadarThread:
                     if len(self._dist_history) > 10:
                         self._dist_history.pop(0)
                     self.smooth_dist = sum(self._dist_history) / len(self._dist_history)
+            except (serial.SerialException, OSError) as e:
+                self._deconnecter(e)
+                buf = bytearray()
             except Exception as e:
                 print(f"Radar erreur: {e}")
-
-    def stop(self):
-        self.running = False
-        self.ser.close()
 
 
 #-----------------------------------------------------------------------------------

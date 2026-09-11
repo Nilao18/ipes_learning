@@ -145,7 +145,7 @@ while True:
         hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
     # Zone A - Donnees systeme (tous modes)
-    hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps)
+    hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar)
 
     if cfg.MODE != "OFF":
         # Zone B - Boussole et altimetre

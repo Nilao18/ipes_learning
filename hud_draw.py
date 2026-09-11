@@ -257,7 +257,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
-def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
+def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, radar=None):
     """Donnees systeme (Zone A) : lignes empilees, une ligne masquee ne laisse pas de trou."""
     x, y = cfg.COL_G, 10
     color_dim = (0, 150, 0)
@@ -270,7 +270,9 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
         lignes += [(now.strftime("%d/%m/%Y"), 0.6, color_dim, 25),
                    (f"CPU:{cpu:.0f}%", 0.6, color_dim, 25),
                    (f"T:{jetson_temp:.0f}C", 0.6, temp_color, 25)]
-        if gps is not None:
+        if gps is not None and not gps.connecte:
+            lignes.append(("GPS HS", 0.6, (0, 165, 255), 30))
+        elif gps is not None:
             if gps.fix:
                 gps_color = (0, 165, 255) if gps.hdop > 5 else color_dim
                 gps_txt = f"GPS HDOP {gps.hdop:.1f}"
@@ -282,6 +284,8 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
     lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
     if not cfg.RADAR_ON:
         lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
+    elif radar is not None and not radar.connecte:
+        lignes.append(("RADAR HS", 0.6, (0, 165, 255), 30))
     if cfg.DEBUG:
         lignes += [(f"FPS:{fps:.1f}", 0.6, color_dim, 30),
                    (f"LAT:{lat:.0f}ms", 0.6, color_dim, 20),

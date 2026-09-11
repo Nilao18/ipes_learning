@@ -49,6 +49,7 @@ CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
 
 GPS_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.4:1.0-port0'  # FT232 USB-A
 RADAR_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.1:1.0-port0'  # FT232 USB-A
+SERIE_RECO = 2.0                   # s entre deux tentatives de reconnexion GPS/radar
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)
