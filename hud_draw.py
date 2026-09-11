@@ -267,9 +267,9 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
     lignes = [(now.strftime("%H:%M:%S"), 0.8, color_dim, 20)]
     if cfg.MODE not in ("MINIMAL", "OFF"):
         temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
-        lignes += [(now.strftime("%d/%m/%Y"), 0.8, color_dim, 30),
-                   (f"CPU:{cpu:.0f}%", 0.8, color_dim, 30),
-                   (f"T:{jetson_temp:.0f}C", 0.8, temp_color, 30)]
+        lignes += [(now.strftime("%d/%m/%Y"), 0.6, color_dim, 25),
+                   (f"CPU:{cpu:.0f}%", 0.6, color_dim, 25),
+                   (f"T:{jetson_temp:.0f}C", 0.6, temp_color, 25)]
         if gps is not None:
             if gps.fix:
                 gps_color = (0, 165, 255) if gps.hdop > 5 else color_dim
@@ -277,8 +277,8 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
             else:
                 gps_color = (0, 165, 255)
                 gps_txt = "GPS NO FIX"
-            lignes += [(gps_txt, 0.7, gps_color, 30),
-                       (f"{gps.satellites} SAT", 0.7, gps_color, 25)]
+            lignes += [(gps_txt, 0.6, gps_color, 30),
+                       (f"{gps.satellites} SAT", 0.6, gps_color, 25)]
     lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
     if not cfg.RADAR_ON:
         lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
