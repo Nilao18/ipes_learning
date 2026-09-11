@@ -321,11 +321,25 @@ class KeyboardThread:
         self.thread.start()
 
     def update(self):
+        import os
         import sys
+        # Rangee des chiffres AZERTY sans Maj : & e " ' ( donnent 1 a 5
+        azerty = {'&': '1', '\u00e9': '2', '"': '3', "'": '4', '(': '5'}
         while self.running:
-            line = sys.stdin.readline().strip()
+            try:
+                brut = os.read(sys.stdin.fileno(), 1024)   # non bufferise : pas de verrou bloquant a l'arret
+                if not brut:                 # fin de flux (pas de terminal) : pas de boucle a vide
+                    time.sleep(0.5)
+                    continue
+                try:
+                    line = brut.decode('utf-8').strip()
+                except UnicodeDecodeError:   # terminal en latin-1 ou octet parasite
+                    line = brut.decode('latin-1').strip()
+            except Exception:
+                time.sleep(0.1)              # le thread clavier ne doit jamais mourir
+                continue
             if line:
-                self.key = line[0]
+                self.key = azerty.get(line[0], line[0])
 
     def get(self):
         """Retourne la derniere touche saisie puis la consomme."""
