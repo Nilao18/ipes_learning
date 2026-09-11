@@ -114,9 +114,9 @@ while True:
 
     now_t = time.time()
 
-    # Detection de personnes - alternance gauche/droite, 1 Hz
+    # Detection de personnes - alternance gauche/droite, cadence DETECT_PERIOD
     detector.poll()
-    if not cfg.NIGHT_VISION and now_t - detect_last > 1.0:
+    if not cfg.NIGHT_VISION and now_t - detect_last > cfg.DETECT_PERIOD:
         cam = cam_left if detect_side == 'L' else cam_right
         if cam is not None and cam.frame is not None:
             if detector.submit(cam.frame, detect_side):
