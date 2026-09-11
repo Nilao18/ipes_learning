@@ -12,8 +12,8 @@ def ocr_worker(input_queue, output_queue):
     import cv2
 
     model = ocr_predictor(
-        det_arch="db_mobilenet_v3_large",
-        reco_arch="crnn_mobilenet_v3_small"
+        det_arch="fast_base",
+        reco_arch="crnn_vgg16_bn"
     )
     while True:
         frame = input_queue.get()
