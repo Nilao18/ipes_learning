@@ -32,6 +32,9 @@ cam_left = CameraThread(cfg.CAM_LEFT, period=cfg.CAM_PERIOD)
 time.sleep(1)
 cam_right = CameraThread(cfg.CAM_RIGHT, period=cfg.CAM_PERIOD)
 time.sleep(1)
+cam_back = (CameraThread(cfg.CAM_BACK, period=cfg.CAM_PERIOD)   # voir ACTIVE_CAM_BACK
+            if cfg.ACTIVE_CAM_BACK else None)
+time.sleep(1)
 cam_night = None
 
 imu = IMUThread()
@@ -58,6 +61,7 @@ lat_display = 0
 
 alert_l_time = 0
 alert_r_time = 0
+alert_b_time = 0
 
 jetson_temp = 0.0
 cpu_percent = 0.0
@@ -114,22 +118,28 @@ while True:
 
     now_t = time.time()
 
-    # Detection de personnes - alternance gauche/droite, cadence DETECT_PERIOD
+    # Detection de personnes - rotation gauche > droite > arriere, cadence DETECT_PERIOD
+    # Une camera absente ou figee (image trop ancienne) est sautee, sans bloquer la rotation
     detector.poll()
     if not cfg.NIGHT_VISION and now_t - detect_last > cfg.DETECT_PERIOD:
-        cam = cam_left if detect_side == 'L' else cam_right
-        if cam is not None and cam.frame is not None:
-            if detector.submit(cam.frame, detect_side):
-                detect_last = now_t
-                detect_side = "R" if detect_side == "L" else "L"
+        cam = {'L': cam_left, 'R': cam_right, 'B': cam_back}[detect_side]
+        suivant = {'L': 'R', 'R': 'B', 'B': 'L'}[detect_side]
+        if (cam is None or cam.frame is None
+                or now_t - (cam.timestamp or 0) > cfg.CAM_FRAICHEUR):
+            detect_side = suivant
+        elif detector.submit(cam.frame, detect_side):
+            detect_last = now_t
+            detect_side = suivant
 
-    nL, nR = detector.compte('L'), detector.compte('R')
-    if count % 60 == 0 and (nL or nR):
-        print("PERSONNES  G:%d  D:%d  (%.0f ms)" % (nL, nR, detector.latence))
+    nL, nR, nB = detector.compte('L'), detector.compte('R'), detector.compte('B')
+    if count % 60 == 0 and (nL or nR or nB):
+        print("PERSONNES  G:%d  D:%d  AR:%d  (%.0f ms)" % (nL, nR, nB, detector.latence))
     if nL > 0:
         alert_l_time = now_t
     if nR > 0:
         alert_r_time = now_t
+    if nB > 0:
+        alert_b_time = now_t
 
     # Dimensions zone utile (marges de securite Xreal)
     HUD_W = int(cfg.ECRAN_W * (1 - cfg.MARGE_G - cfg.MARGE_D))
@@ -175,7 +185,8 @@ while True:
             hud = draw.draw_sentinelle(hud, radar.targets,
                                        now_t - alert_l_time < cfg.ALERT_DURATION,
                                        now_t - alert_r_time < cfg.ALERT_DURATION,
-                                       detector)
+                                       detector,
+                                       now_t - alert_b_time < cfg.ALERT_DURATION)
 
         if cfg.MODE in cfg.MODES_COMPLETS:
             # Zone G - OCR
@@ -213,7 +224,8 @@ while True:
     if cfg.MODE != "OFF":
         ecran = draw.draw_alert_bars(ecran, ox, oy, HUD_W, HUD_H,
                                      now_t - alert_l_time < cfg.ALERT_DURATION,
-                                     now_t - alert_r_time < cfg.ALERT_DURATION)
+                                     now_t - alert_r_time < cfg.ALERT_DURATION,
+                                     now_t - alert_b_time < cfg.ALERT_DURATION)
 
     cv2.imshow("IPES HUD V1", ecran)
 
@@ -288,6 +300,8 @@ if cam_right:
     cam_right.stop()
 if cam_night:
     cam_night.stop()
+if cam_back:
+    cam_back.stop()
 detector.stop()
 if xdisp:
     xdisp.screen().root.xfixes_show_cursor()

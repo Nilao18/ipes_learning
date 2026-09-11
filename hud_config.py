@@ -46,6 +46,8 @@ TILES_DIR = "/home/quentin/ipes/maps/tours"  # Repertoire des tuiles minimap
 CAM_LEFT  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.1:1.0-video-index0"
 CAM_RIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.4:1.0-video-index0"
 CAM_NIGHT = "/dev/v4l/by-path/platform-3610000.usb-usb-0:1.3:1.0-video-index0"
+CAM_BACK  = "/dev/v4l/by-path/platform-3610000.usb-usb-0:2.3:1.0-video-index0"   # OV9281 arriere, USB-A 4 Jetson
+ACTIVE_CAM_BACK = False   # bus USB 2.0 sature par 2 OV9281 en MJPG : en attente d un second bus USB
 
 GPS_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.4:1.0-port0'  # FT232 USB-A
 RADAR_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.1:1.0-port0'  # FT232 USB-A
@@ -97,6 +99,9 @@ ALERT_DURATION = 1.5      # secondes d'affichage d'une alerte laterale
 ALERT_BAR_W = 12          # largeur des bandes d'alerte laterales (px)
 ALERT_BAR_GAP = 20        # ecart entre bande et bord de la zone utile (px)
 COL_G = NET_G + ALERT_BAR_W + ALERT_BAR_GAP  # colonne de contenu gauche, apres la bande
+ALERT_BAS_MARGE = True    # bande arriere dans la marge basse (False : bord bas de la zone utile)
+RETRO_Y = 230             # haut de la vignette retroviseur, sous la boussole (px zone utile)
+CAM_FRAICHEUR = 3.0       # s : image plus ancienne = camera consideree indisponible
 ALERT_STRIPE = 12         # largeur d'une rayure diagonale (px)
 DETECT_PERIOD = 0.25      # s entre deux inferences, alternees G/D (0.25 = 2 Hz par cote)
 CAM_PERIOD = 0.5          # s entre deux captures OV9281 (0.5 = 2 images/s)

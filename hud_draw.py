@@ -338,7 +338,8 @@ def draw_poi(frame, yaw, pitch):
     return frame
 
 
-def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, det=None):
+def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, det=None,
+                    alerte_a=False):
     """Cadran vue de dessus : toi au centre, avant en haut. Angle 0 = avant, positif = droite."""
     h, w = frame.shape[:2]
     R = cfg.SENTINELLE_R
@@ -365,6 +366,7 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
     arc(0, cfg.RADAR_FOV, vert if cfg.RADAR_ON else gris)
     arc(-90, cfg.CAM_HFOV, orange if alerte_g else vert)
     arc(90, cfg.CAM_HFOV, orange if alerte_d else vert)
+    arc(180, cfg.CAM_HFOV, orange if alerte_a else vert)
 
     # Toi : triangle pointe vers l'avant
     pts = np.array([(cx, cy - 10), (cx - 7, cy + 7), (cx + 7, cy + 7)], np.int32)
@@ -388,7 +390,7 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
     # Direction : image redressee, a droite de l'image = vers l'avant pour la camera gauche,
     # vers l'arriere pour la droite. Distance : taille apparente d'une personne debout.
     if det is not None:
-        for cote, axe in (("L", -90.0), ("R", 90.0)):
+        for cote, axe in (("L", -90.0), ("R", 90.0), ("B", 180.0)):
             for (x, y, bw, bh, _) in det.personnes(cote):
                 angle = axe + math.degrees(math.atan((x + bw / 2 - cfg.CAM_W / 2) / cfg.CAM_FX))
                 dist = cfg.CAM_FX * cfg.TAILLE_PERSONNE / max(bh, 1)
@@ -417,8 +419,9 @@ def _bande_danger(h, w):
     return _bande_cache[(h, w)]
 
 
-def draw_alert_bars(ecran, ox, oy, hud_w, hud_h, gauche, droite):
-    """Bandes d'alerte laterales : a gauche au debut de la zone nette, a droite hors zone utile."""
+def draw_alert_bars(ecran, ox, oy, hud_w, hud_h, gauche, droite, bas=False):
+    """Bandes d'alerte : a gauche au debut de la zone nette, a droite hors zone utile,
+    en bas (arriere) entre les deux bandes laterales."""
     bw, gap = cfg.ALERT_BAR_W, cfg.ALERT_BAR_GAP
     motif = _bande_danger(hud_h, bw)
     if gauche:
@@ -427,6 +430,10 @@ def draw_alert_bars(ecran, ox, oy, hud_w, hud_h, gauche, droite):
     if droite:
         x = ox + hud_w + gap
         ecran[oy:oy + hud_h, x:x + bw] = motif
+    if bas:
+        x0, x1 = ox + cfg.NET_G, ox + hud_w + gap + bw
+        y = oy + hud_h + gap if cfg.ALERT_BAS_MARGE else oy + hud_h - bw
+        ecran[y:y + bw, x0:x1] = _bande_danger(bw, x1 - x0)
     return ecran
 
 
@@ -442,6 +449,18 @@ def draw_vignettes(frame, det):
         cv2.rectangle(frame, (vx - 2, vy - 2), (vx + 122, vy + 162),
                       (0, 165, 255), 2)
         txt = f"{det.compte(cote)} PERS"
+        (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        cv2.putText(frame, txt, (vx + (120 - tw) // 2, vy + 190),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+
+    # Arriere : retroviseur en haut au centre, image en miroir (gauche = ta gauche)
+    v = det.vignette('B')
+    if v is not None:
+        vx, vy = w // 2 - 60, cfg.RETRO_Y
+        frame[vy:vy + 160, vx:vx + 120] = cv2.flip(v, 1)
+        cv2.rectangle(frame, (vx - 2, vy - 2), (vx + 122, vy + 162),
+                      (0, 165, 255), 2)
+        txt = f"ARR {det.compte('B')} PERS"
         (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
         cv2.putText(frame, txt, (vx + (120 - tw) // 2, vy + 190),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)

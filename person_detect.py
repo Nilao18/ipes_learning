@@ -145,9 +145,9 @@ class PersonDetector:
         self.proc = ctx.Process(
             target=_worker, args=(self.entree, self.sortie), daemon=True)
         self.proc.start()
-        self.detections = {'L': [], 'R': []}
-        self.vignettes = {'L': None, 'R': None}
-        self.horodatage = {'L': 0.0, 'R': 0.0}
+        self.detections = {'L': [], 'R': [], 'B': []}      # B = arriere
+        self.vignettes = {'L': None, 'R': None, 'B': None}
+        self.horodatage = {'L': 0.0, 'R': 0.0, 'B': 0.0}
         self.latence = 0.0
         self.en_cours = False
 
