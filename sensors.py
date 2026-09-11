@@ -101,6 +101,7 @@ class GPSThread:
         self.alt = 0.0
         self.speed = 0.0
         self.satellites = 0
+        self.hdop = 99.99   # precision horizontale, 99.99 = inconnue
         self.fix = False
         self.running = True
         self.thread = threading.Thread(target=self.update)
@@ -114,7 +115,8 @@ class GPSThread:
                 line = self.ser.readline().decode('ascii', errors='replace').strip()
                 if line.startswith('$GNGGA'):
                     msg = pynmea2.parse(line)
-                    self.satellites = int(msg.num_sats)
+                    self.satellites = int(msg.num_sats or 0)
+                    self.hdop = float(msg.horizontal_dil) if msg.horizontal_dil else 99.99
                     self.fix = int(msg.gps_qual) > 0
                     if self.fix:
                         self.alt = float(msg.altitude) if msg.altitude else 0.0

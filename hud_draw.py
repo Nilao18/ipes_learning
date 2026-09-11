@@ -257,7 +257,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
-def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
+def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None):
     """Donnees systeme (Zone A) : lignes empilees, une ligne masquee ne laisse pas de trou."""
     x, y = 110, 10
     color_dim = (0, 150, 0)
@@ -270,6 +270,15 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0):
         lignes += [(now.strftime("%d/%m/%Y"), 0.8, color_dim, 30),
                    (f"CPU:{cpu:.0f}%", 0.8, color_dim, 30),
                    (f"T:{jetson_temp:.0f}C", 0.8, temp_color, 30)]
+        if gps is not None:
+            if gps.fix:
+                gps_color = (0, 165, 255) if gps.hdop > 5 else color_dim
+                gps_txt = f"GPS HDOP {gps.hdop:.1f}"
+            else:
+                gps_color = (0, 165, 255)
+                gps_txt = "GPS NO FIX"
+            lignes += [(gps_txt, 0.7, gps_color, 30),
+                       (f"{gps.satellites} SAT", 0.7, gps_color, 25)]
     lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
     if not cfg.RADAR_ON:
         lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
