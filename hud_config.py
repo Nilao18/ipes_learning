@@ -57,6 +57,7 @@ CASQUE_BAUD = 115200
 CASQUE_TIMEOUT = 1.0               # s sans trame IMU avant de declarer la liaison perdue
 CASQUE_ACK = 0.5                   # s d'attente d'un accuse de commande
 BRASSARD_TIMEOUT = 3.0             # s sans trame brassard avant de le declarer absent
+BRASSARD_BOUTONS = ("t1", "t2", "t3", "coude", "enc", "rot")   # ordre des bits du masque btn
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)

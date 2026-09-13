@@ -117,6 +117,9 @@ class CasqueThread(_SerieUSB):
         self.etat_imu = 0          # qualite d'etalonnage BNO085, 0 a 3
         self.derniere_imu = 0.0    # horodatage de la derniere trame recue
         self.brassard = {}         # dernier etat du brassard (relaye par le casque)
+        self.boutons = {nom: False for nom in cfg.BRASSARD_BOUTONS}   # etat instantane
+        self._masque = 0           # masque precedent, pour detecter les fronts
+        self._fronts = 0           # appuis vus depuis la derniere lecture
         self.derniere_brassard = 0.0
         self._acks = {}            # id de commande -> True/False
         self._id = 0
@@ -140,10 +143,19 @@ class CasqueThread(_SerieUSB):
         """Le brassard passe par le casque : son silence n'empeche pas le reste."""
         return self.connecte and (time.time() - self.derniere_brassard) < cfg.BRASSARD_TIMEOUT
 
+    def appuis(self):
+        """Boutons appuyes depuis le dernier appel, puis remise a zero.
+        A appeler une seule fois par tour de boucle : la lecture consomme les fronts."""
+        with self._lock:
+            fronts, self._fronts = self._fronts, 0
+        return {nom for i, nom in enumerate(cfg.BRASSARD_BOUTONS) if fronts & (1 << i)}
+
     def _perte(self):
         self.etat_imu = 0
         with self._lock:
             self._acks.clear()
+            self._fronts = 0
+            self._masque = 0
 
     def commande(self, cible, valeur=0, attendre=True, dst="casque"):
         """Envoie une commande. dst='brassard' : le casque relaie sans interpreter.
@@ -189,6 +201,15 @@ class CasqueThread(_SerieUSB):
         elif type_msg == "brs":
             self.brassard = msg
             self.derniere_brassard = time.time()
+            # Masque 6 bits, ordre BRASSARD_BOUTONS. Le thread voit toutes les trames,
+            # donc il memorise les fronts : un appui bref n'est jamais perdu, meme si
+            # le HUD ne consulte l'etat que 15 fois par seconde.
+            masque = int(msg.get("btn", 0))
+            with self._lock:
+                self._fronts |= masque & ~self._masque
+                self._masque = masque
+            self.boutons = {nom: bool(masque & (1 << i))
+                            for i, nom in enumerate(cfg.BRASSARD_BOUTONS)}
         elif type_msg == "err":
             print("%s erreur : %s" % (msg.get("src", "casque"), msg.get("msg")))
 
