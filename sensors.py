@@ -95,8 +95,10 @@ class _SerieUSB:
 
     def stop(self):
         self.running = False
+        time.sleep(0.05)          # laisse le readline en cours se terminer
         if self.ser is not None:
             self.ser.close()
+            self.ser = None       # pas de fausse deconnexion signalee a l'arret
 
 
 #-----------------------------------------------------------------------------------
@@ -114,6 +116,8 @@ class CasqueThread(_SerieUSB):
         self.yaw = 0.0
         self.etat_imu = 0          # qualite d'etalonnage BNO085, 0 a 3
         self.derniere_imu = 0.0    # horodatage de la derniere trame recue
+        self.brassard = {}         # dernier etat du brassard (relaye par le casque)
+        self.derniere_brassard = 0.0
         self._acks = {}            # id de commande -> True/False
         self._id = 0
         self._lock = threading.Lock()
@@ -131,19 +135,26 @@ class CasqueThread(_SerieUSB):
         """False si le casque ne parle plus : l'horizon et le POI sont alors figes."""
         return self.connecte and (time.time() - self.derniere_imu) < cfg.CASQUE_TIMEOUT
 
+    @property
+    def brassard_ok(self):
+        """Le brassard passe par le casque : son silence n'empeche pas le reste."""
+        return self.connecte and (time.time() - self.derniere_brassard) < cfg.BRASSARD_TIMEOUT
+
     def _perte(self):
         self.etat_imu = 0
         with self._lock:
             self._acks.clear()
 
-    def commande(self, cible, valeur=0, attendre=True):
-        """Envoie une commande au casque. Retourne True si acquittee, False sinon."""
+    def commande(self, cible, valeur=0, attendre=True, dst="casque"):
+        """Envoie une commande. dst='brassard' : le casque relaie sans interpreter.
+        Retourne True si acquittee par le destinataire, False sinon."""
         if not self.connecte:
             return False
         with self._lock:
             self._id += 1
             ident = self._id
-        trame = json.dumps({"t": "cmd", "id": ident, "cible": cible, "val": valeur})
+        trame = json.dumps({"t": "cmd", "dst": dst, "id": ident,
+                            "cible": cible, "val": valeur})
         try:
             self.ser.write((trame + "\n").encode())
         except (serial.SerialException, OSError) as e:
@@ -175,8 +186,11 @@ class CasqueThread(_SerieUSB):
         elif type_msg == "ack":
             with self._lock:
                 self._acks[msg.get("id")] = bool(msg.get("ok"))
+        elif type_msg == "brs":
+            self.brassard = msg
+            self.derniere_brassard = time.time()
         elif type_msg == "err":
-            print("Casque erreur :", msg.get("msg"))
+            print("%s erreur : %s" % (msg.get("src", "casque"), msg.get("msg")))
 
     def update(self):
         while self.running:
