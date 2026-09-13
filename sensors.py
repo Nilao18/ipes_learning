@@ -1,6 +1,7 @@
 #-----------------------------------------------------------------------------------
 # Threads capteurs IPES - IMU, environnement, GPS, radar, cameras, clavier
 #-----------------------------------------------------------------------------------
+import json
 import math
 import struct
 import threading
@@ -10,49 +11,9 @@ import cv2
 import serial
 import pynmea2
 from adafruit_extended_bus import ExtendedI2C as I2C  # Import adafruit apres le reset
-from adafruit_bno08x.i2c import BNO08X_I2C
-from adafruit_bno08x import BNO_REPORT_ROTATION_VECTOR
 import adafruit_bme680
 
 import hud_config as cfg
-
-
-#------------------------------------------------------------------------------------
-# Thread IMU (BNO085) - Inertial Measurement Unit : Pitch, Yaw, Roll
-#------------------------------------------------------------------------------------
-class IMUThread:
-    def __init__(self):
-        print("Init IMU...")
-        i2c = I2C(1)
-        print("I2C OK")
-        self.bno = BNO08X_I2C(i2c, address=0x4A)
-        print("BNO08X OK")
-        self.bno.soft_reset()
-        time.sleep(1)
-        self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
-        print("Feature OK")
-        self.roll = 0.0
-        self.pitch = 0.0
-        self.yaw = 0.0
-        print("Pitch/Yaw/Roll OK")
-        self.running = True
-        self.thread = threading.Thread(target=self.update)
-        self.thread.daemon = True
-        self.thread.start()
-        print("Thread Start OK")
-
-    def update(self):
-        while self.running:
-            quat = self.bno.quaternion
-            if quat:
-                qi, qj, qk, real = quat
-                self.roll  = math.degrees(math.atan2(2*(real*qi + qj*qk), 1 - 2*(qi*qi + qj*qj)))
-                self.pitch = math.degrees(math.asin(max(-1, min(1, 2*(real*qj - qk*qi)))))
-                self.yaw   = math.degrees(math.atan2(2*(real*qk + qi*qj), 1 - 2*(qj*qj + qk*qk)))
-            time.sleep(0.02)  # 50Hz
-
-    def stop(self):
-        self.running = False
 
 
 #-----------------------------------------------------------------------------------
@@ -136,6 +97,102 @@ class _SerieUSB:
         self.running = False
         if self.ser is not None:
             self.ser.close()
+
+
+#-----------------------------------------------------------------------------------
+# Thread Casque (ESP32-S3 sur ttyTHS1) - orientation 50 Hz et commandes acquittees
+#-----------------------------------------------------------------------------------
+class CasqueThread(_SerieUSB):
+    """Liaison JSON avec l'ESP32 du casque : une trame par ligne.
+    Recoit le quaternion du BNO085 ; la conversion en angles reste ici, a l'identique
+    de l'ancien IMUThread, pour ne pas dupliquer la convention entre les deux cartes."""
+
+    def __init__(self):
+        print("Init Casque (ESP32)...")
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+        self.etat_imu = 0          # qualite d'etalonnage BNO085, 0 a 3
+        self.derniere_imu = 0.0    # horodatage de la derniere trame recue
+        self._acks = {}            # id de commande -> True/False
+        self._id = 0
+        self._lock = threading.Lock()
+        self._init_serie("Casque", cfg.CASQUE_PORT, cfg.CASQUE_BAUD, 1)
+        if self.connecte:
+            self.ser.reset_input_buffer()   # octets parasites de l'ouverture du port
+        self.running = True
+        self.thread = threading.Thread(target=self.update)
+        self.thread.daemon = True
+        self.thread.start()
+        print("Casque OK" if self.connecte else "Casque demarre sans port")
+
+    @property
+    def imu_ok(self):
+        """False si le casque ne parle plus : l'horizon et le POI sont alors figes."""
+        return self.connecte and (time.time() - self.derniere_imu) < cfg.CASQUE_TIMEOUT
+
+    def _perte(self):
+        self.etat_imu = 0
+        with self._lock:
+            self._acks.clear()
+
+    def commande(self, cible, valeur=0, attendre=True):
+        """Envoie une commande au casque. Retourne True si acquittee, False sinon."""
+        if not self.connecte:
+            return False
+        with self._lock:
+            self._id += 1
+            ident = self._id
+        trame = json.dumps({"t": "cmd", "id": ident, "cible": cible, "val": valeur})
+        try:
+            self.ser.write((trame + "\n").encode())
+        except (serial.SerialException, OSError) as e:
+            self._deconnecter(e)
+            return False
+        if not attendre:
+            return True
+        limite = time.time() + cfg.CASQUE_ACK
+        while time.time() < limite:
+            with self._lock:
+                if ident in self._acks:
+                    return self._acks.pop(ident)
+            time.sleep(0.005)
+        print("Casque : pas d'accuse pour la commande", cible)
+        return False
+
+    def _traiter(self, msg):
+        type_msg = msg.get("t")
+        if type_msg == "imu":
+            qi, qj, qk = msg["qi"], msg["qj"], msg["qk"]
+            real = msg["qr"]
+            self.roll = math.degrees(math.atan2(2 * (real * qi + qj * qk),
+                                                1 - 2 * (qi * qi + qj * qj)))
+            self.pitch = math.degrees(math.asin(max(-1, min(1, 2 * (real * qj - qk * qi)))))
+            self.yaw = math.degrees(math.atan2(2 * (real * qk + qi * qj),
+                                               1 - 2 * (qj * qj + qk * qk)))
+            self.etat_imu = msg.get("st", 0)
+            self.derniere_imu = time.time()
+        elif type_msg == "ack":
+            with self._lock:
+                self._acks[msg.get("id")] = bool(msg.get("ok"))
+        elif type_msg == "err":
+            print("Casque erreur :", msg.get("msg"))
+
+    def update(self):
+        while self.running:
+            if not self._attendre_port():
+                continue
+            try:
+                ligne = self.ser.readline().decode('utf-8', errors='replace').strip()
+            except (serial.SerialException, OSError) as e:
+                self._deconnecter(e)
+                continue
+            if not ligne:
+                continue
+            try:
+                self._traiter(json.loads(ligne))
+            except (ValueError, KeyError, TypeError):
+                pass    # trame tronquee ou champ manquant : on passe a la suivante
 
 
 #-----------------------------------------------------------------------------------

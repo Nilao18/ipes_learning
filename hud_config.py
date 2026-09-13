@@ -52,6 +52,10 @@ ACTIVE_CAM_BACK = False   # bus USB 2.0 sature par 2 OV9281 en MJPG : en attente
 GPS_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.4:1.0-port0'  # FT232 USB-A
 RADAR_PORT = '/dev/serial/by-path/platform-3610000.usb-usb-0:2.1:1.0-port0'  # FT232 USB-A
 SERIE_RECO = 2.0                   # s entre deux tentatives de reconnexion GPS/radar
+CASQUE_PORT = '/dev/ttyTHS1'       # ESP32-S3 casque, connecteur 40 broches pins 8/10
+CASQUE_BAUD = 115200
+CASQUE_TIMEOUT = 1.0               # s sans trame IMU avant de declarer la liaison perdue
+CASQUE_ACK = 0.5                   # s d'attente d'un accuse de commande
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)

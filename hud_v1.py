@@ -20,7 +20,7 @@ import numpy as np
 import psutil
 
 import hud_config as cfg
-from sensors import (IMUThread, BMEThread, GPSThread, RadarThread,
+from sensors import (CasqueThread, BMEThread, GPSThread, RadarThread,
                      CameraThread, KeyboardThread)
 from ocr_process import OCRProcess
 from person_detect import PersonDetector
@@ -37,7 +37,7 @@ cam_back = (CameraThread(cfg.CAM_BACK, period=cfg.CAM_PERIOD)   # voir ACTIVE_CA
 time.sleep(1)
 cam_night = None
 
-imu = IMUThread()
+casque = CasqueThread()
 time.sleep(0.5)
 bme = BMEThread()
 time.sleep(0.5)
@@ -155,11 +155,12 @@ while True:
         hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
     # Zone A - Donnees systeme (tous modes)
-    hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar)
+    hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar,
+                               casque)
 
     if cfg.MODE != "OFF":
         # Zone B - Boussole et altimetre
-        hud = draw.draw_zone_b(hud, imu.roll, imu.pitch, imu.yaw, bme.pressure)
+        hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure)
 
         # Zone C - Navigation GPS et minimap
         if cfg.MODE in cfg.MINIMAP_SIZE:
@@ -174,7 +175,7 @@ while True:
 
         # Zone Centre - reticule et POI
         hud = draw.draw_zone_centre(hud)
-        hud = draw.draw_poi(hud, imu.yaw, imu.pitch)
+        hud = draw.draw_poi(hud, casque.yaw, casque.pitch)
 
         # Zone D/E - Distance radar et vignettes des personnes detectees
         hud = draw.draw_zone_e(hud, radar.targets)
@@ -269,8 +270,11 @@ while True:
         print("Mode:", cfg.MODE)
 
     elif key == ord('v'):
-        cfg.poi = {"yaw": imu.yaw, "pitch": imu.pitch, "t": time.time()}
-        print("POI verrouille yaw=%.1f pitch=%.1f" % (imu.yaw, imu.pitch))
+        if not casque.imu_ok:
+            print("POI refuse : pas d'orientation du casque")
+        else:
+            cfg.poi = {"yaw": casque.yaw, "pitch": casque.pitch, "t": time.time()}
+            print("POI verrouille yaw=%.1f pitch=%.1f" % (casque.yaw, casque.pitch))
 
     elif key == ord('c'):
         cfg.poi = None
@@ -303,6 +307,7 @@ if cam_night:
 if cam_back:
     cam_back.stop()
 detector.stop()
+casque.stop()
 if xdisp:
     xdisp.screen().root.xfixes_show_cursor()
     xdisp.close()
