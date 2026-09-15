@@ -119,7 +119,8 @@ class CasqueThread(_SerieUSB):
         self.brassard = {}         # dernier etat du brassard (relaye par le casque)
         self.boutons = {nom: False for nom in cfg.BRASSARD_BOUTONS}   # etat instantane
         self._masque = 0           # masque precedent, pour detecter les fronts
-        self._fronts = 0           # appuis vus depuis la derniere lecture
+        self._presse = {}          # bouton -> instant d'appui, pour mesurer la duree
+        self._evts = []            # (bouton, duree) des relachements non encore lus
         self.derniere_brassard = 0.0
         self._acks = {}            # id de commande -> True/False
         self._id = 0
@@ -143,18 +144,26 @@ class CasqueThread(_SerieUSB):
         """Le brassard passe par le casque : son silence n'empeche pas le reste."""
         return self.connecte and (time.time() - self.derniere_brassard) < cfg.BRASSARD_TIMEOUT
 
-    def appuis(self):
-        """Boutons appuyes depuis le dernier appel, puis remise a zero.
-        A appeler une seule fois par tour de boucle : la lecture consomme les fronts."""
+    def evenements(self):
+        """Appuis termines depuis le dernier appel : liste de (bouton, duree).
+        A appeler une seule fois par tour de boucle : la lecture consomme la liste."""
         with self._lock:
-            fronts, self._fronts = self._fronts, 0
-        return {nom for i, nom in enumerate(cfg.BRASSARD_BOUTONS) if fronts & (1 << i)}
+            evts, self._evts = self._evts, []
+        return evts
+
+    @staticmethod
+    def duree_type(duree):
+        """'court', 'long' ou 'tres_long' selon les seuils de hud_config."""
+        if duree >= cfg.APPUI_TRES_LONG:
+            return "tres_long"
+        return "long" if duree >= cfg.APPUI_LONG else "court"
 
     def _perte(self):
         self.etat_imu = 0
         with self._lock:
             self._acks.clear()
-            self._fronts = 0
+            self._evts.clear()
+            self._presse.clear()
             self._masque = 0
 
     def commande(self, cible, valeur=0, attendre=True, dst="casque"):
@@ -205,8 +214,20 @@ class CasqueThread(_SerieUSB):
             # donc il memorise les fronts : un appui bref n'est jamais perdu, meme si
             # le HUD ne consulte l'etat que 15 fois par seconde.
             masque = int(msg.get("btn", 0))
+            now = time.time()
             with self._lock:
-                self._fronts |= masque & ~self._masque
+                for i, nom in enumerate(cfg.BRASSARD_BOUTONS):
+                    avant = (self._masque >> i) & 1
+                    apres = (masque >> i) & 1
+                    if apres and not avant:
+                        self._presse[nom] = now          # debut d'appui
+                    elif avant and not apres:
+                        # On agit au RELACHEMENT : c'est la seule facon de distinguer
+                        # trois durees sur un meme bouton sans declencher la courte
+                        # avant d'avoir vu si l'appui se prolongeait.
+                        debut = self._presse.pop(nom, None)
+                        if debut is not None:
+                            self._evts.append((nom, now - debut))
                 self._masque = masque
             self.boutons = {nom: bool(masque & (1 << i))
                             for i, nom in enumerate(cfg.BRASSARD_BOUTONS)}

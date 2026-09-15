@@ -29,7 +29,8 @@
 # Zone G - Transcription et traduction en temps reel (texte + voix)
 # Zone H - Infos environnement (Temperature/humidite/presence gaz)
 # Zone I - Bandeau d'alerte central (temporaire)
-
+#----------------------------------------------------------------------------- Import
+import os
 #----------------------------------------------------------------------------- Affichage elements
 DEBUG = False        # True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B)
 SHOW_RETICULE = True # reticule central (Zone CENTRE) - touche X, modifie a l'execution
@@ -58,6 +59,18 @@ CASQUE_TIMEOUT = 1.0               # s sans trame IMU avant de declarer la liais
 CASQUE_ACK = 0.5                   # s d'attente d'un accuse de commande
 BRASSARD_TIMEOUT = 3.0             # s sans trame brassard avant de le declarer absent
 BRASSARD_BOUTONS = ("t1", "t2", "t3", "coude", "enc", "rot")   # ordre des bits du masque btn
+APPUI_LONG = 0.5                   # s : au-dela, l'appui est long
+APPUI_TRES_LONG = 2.0              # s : au-dela, extinction totale
+# Position du rotatif -> mode. Progression du moins au plus charge.
+ROT_MODES = {1: "OFF", 2: "MINIMAL", 3: "NORMAL", 4: "NAV", 5: "SENTINELLE"}
+CAPTURES = os.path.expanduser("~/ipes/captures")   # images + telemetrie de la touche CAPTURE
+VISIERE_NIVEAUX = 3                # niveaux d'assombrissement electrochromique
+# Etiquettes des trois touches contextuelles, affichees plus tard sur l'ecran brassard
+TOUCHES = {"NORMAL":     ("CAPTURE", "POI", "CAMERA"),
+           "NAV":        ("CAPTURE", "POI", "MARQUEUR"),
+           "SENTINELLE": ("CAPTURE", "POI", "CAMERA"),
+           "MINIMAL":    ("CAPTURE", "POI", ""),
+           "OFF":        ("", "", "")}
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)

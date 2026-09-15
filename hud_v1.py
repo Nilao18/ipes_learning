@@ -13,7 +13,12 @@
 #   1-5 mode direct     m  mode suivant                (5 = SENTINELLE)
 #   v  verrouiller POI  c  effacer POI
 #   r  radar ON/OFF     x  reticule ON/OFF             h  horizon ON/OFF
+# Brassard : rotatif = mode | t1-t3 = touches contextuelles | coude = visiere
+#            tres long (>2 s) sur n'importe quel bouton = extinction totale
+import json
+import os
 import time
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -57,6 +62,22 @@ print("Detection OK")
 #----------------------------------------------------------------------------- Initialisation
 count = 0
 fps = 0
+rot_precedent = None       # derniere position du rotatif vue, pour n'agir qu'au changement
+visiere = 0                # niveau electrochromique suppose (le bouton ne se relit pas)
+marqueurs = []             # points poses en mode NAV
+
+
+def capturer(image, casque, gps, bme):
+    """Image du HUD + telemetrie, horodatees. Action instantanee : elle ne se differe pas."""
+    os.makedirs(cfg.CAPTURES, exist_ok=True)
+    nom = datetime.now().strftime("%Y%m%d_%H%M%S")
+    cv2.imwrite(os.path.join(cfg.CAPTURES, nom + ".png"), image)
+    with open(os.path.join(cfg.CAPTURES, nom + ".json"), "w") as f:
+        json.dump({"mode": cfg.MODE, "yaw": casque.yaw, "pitch": casque.pitch,
+                   "roll": casque.roll, "lat": gps.lat, "lon": gps.lon,
+                   "sat": gps.satellites, "fix": gps.fix,
+                   "temp": bme.temperature, "hum": bme.humidity}, f, indent=1)
+    print("  Capture", nom)
 lat_display = 0
 
 alert_l_time = 0
@@ -134,6 +155,8 @@ while True:
     nL, nR, nB = detector.compte('L'), detector.compte('R'), detector.compte('B')
     if count % 60 == 0 and (nL or nR or nB):
         print("PERSONNES  G:%d  D:%d  AR:%d  (%.0f ms)" % (nL, nR, nB, detector.latence))
+    if count % 30 == 0:
+        print("  [brassard] ok=%s imu=%s %s" % (casque.brassard_ok, casque.imu_ok, casque.brassard))
     if nL > 0:
         alert_l_time = now_t
     if nR > 0:
@@ -235,6 +258,66 @@ while True:
     kb_key = kb.get()
     if kb_key:
         key = ord(kb_key)
+
+    # Rotatif du brassard : selecteur de mode absolu, il prime sur le clavier
+    rot = casque.brassard.get("rot")
+    if rot is not None and rot != rot_precedent:
+        rot_precedent = rot
+        nouveau = cfg.ROT_MODES.get(rot)
+        if nouveau and nouveau != cfg.MODE:
+            cfg.MODE = nouveau
+            minimap_cache = None
+            print("Mode:", cfg.MODE, "(rotatif %d)" % rot)
+        elif nouveau is None:
+            print("Rotatif position %d : non attribuee" % rot)
+
+    # Boutons du brassard : l'evenement naît au relachement, avec sa duree
+    for bouton, duree in casque.evenements():
+        t = casque.duree_type(duree)
+        print("Brassard : %s %s (%.2f s)" % (bouton, t, duree))
+
+        if t == "tres_long":                       # meme geste sur n'importe quel bouton
+            cfg.MODE = "OFF"
+            cfg.poi = None
+            minimap_cache = None
+            print("EXTINCTION TOTALE")
+            continue
+
+        touches = cfg.TOUCHES.get(cfg.MODE, ("", "", ""))
+        if bouton in ("t1", "t2", "t3"):
+            action = touches[int(bouton[1]) - 1]
+            if not action:
+                print("  touche sans fonction dans ce mode")
+            elif action == "CAPTURE":
+                capturer(ecran, casque, gps, bme)
+            elif action == "POI":
+                if t == "long":
+                    cfg.poi = None
+                    print("  POI efface")
+                elif not casque.imu_ok:
+                    print("  POI refuse : pas d'orientation du casque")
+                else:
+                    cfg.poi = {"yaw": casque.yaw, "pitch": casque.pitch, "t": now_t}
+                    print("  POI verrouille yaw=%.1f pitch=%.1f" % (casque.yaw, casque.pitch))
+            elif action == "CAMERA":
+                key = ord('n')                     # reutilise la bascule nocturne existante
+            elif action == "MARQUEUR":
+                marqueurs.append({"lat": gps.lat, "lon": gps.lon, "t": now_t})
+                print("  Marqueur %d pose (%.5f, %.5f)" % (len(marqueurs), gps.lat, gps.lon))
+
+        elif bouton == "coude":
+            if t == "court":
+                visiere = (visiere + 1) % cfg.VISIERE_NIVEAUX
+                casque.commande("visiere", visiere, attendre=False)
+                print("  Visiere niveau", visiere)
+            else:
+                print("  Ecran Xreal ON/OFF (non implemente)")
+
+        elif bouton == "rot":
+            print("  Action principale du mode (a definir)")
+
+        elif bouton == "enc":
+            print("  Validation (a definir)")
 
     if key == ord('q'):
         break

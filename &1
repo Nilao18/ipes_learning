@@ -1,0 +1,16 @@
+/home/quentin/ipes/venv/lib/python3.10/site-packages/adafruit_blinka/microcontroller/generic_linux/i2c.py:30: RuntimeWarning: I2C frequency is not settable in python, ignoring!
+  warnings.warn(
+[0;93m2026-09-15 15:31:41.699168626 [W:onnxruntime:Default, device_discovery.cc:211 DiscoverDevicesForPlatform] GPU device discovery failed: device_discovery.cc:91 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-09-15 15:31:42.317521646 [W:onnxruntime:Default, device_discovery.cc:211 DiscoverDevicesForPlatform] GPU device discovery failed: device_discovery.cc:91 ReadFileContents Failed to open file: "/sys/class/drm/card1/device/vendor"[m
+[0;93m2026-09-15 15:31:48.978690870 [W:onnxruntime:Default, tensorrt_execution_provider.h:92 log] [2026-09-15 13:31:48 WARNING] Using an engine plan file across different models of devices is not recommended and is likely to affect performance or even cause errors.[m
+Process Process-1:
+Process SpawnProcess-2:
+Traceback (most recent call last):
+  File "/home/quentin/ipes/phase2/hud_v1.py", line 186, in <module>
+    hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure)
+  File "/home/quentin/ipes/phase2/hud_draw.py", line 166, in draw_zone_b
+    cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
+KeyboardInterrupt
+Exception ignored in: <_io.TextIOWrapper name='<stdout>' mode='w' encoding='utf-8'>
+BrokenPipeError: [Errno 32] Broken pipe
+FATAL: exception not rethrown
