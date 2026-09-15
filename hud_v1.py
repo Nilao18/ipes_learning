@@ -154,9 +154,7 @@ while True:
 
     nL, nR, nB = detector.compte('L'), detector.compte('R'), detector.compte('B')
     if count % 60 == 0 and (nL or nR or nB):
-        print("PERSONNES  G:%d  D:%d  AR:%d  (%.0f ms)" % (nL, nR, nB, detector.latence))
     if count % 30 == 0:
-        print("  [brassard] ok=%s imu=%s %s" % (casque.brassard_ok, casque.imu_ok, casque.brassard))
     if nL > 0:
         alert_l_time = now_t
     if nR > 0:
