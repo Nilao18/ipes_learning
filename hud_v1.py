@@ -153,8 +153,6 @@ while True:
             detect_side = suivant
 
     nL, nR, nB = detector.compte('L'), detector.compte('R'), detector.compte('B')
-    if count % 60 == 0 and (nL or nR or nB):
-    if count % 30 == 0:
     if nL > 0:
         alert_l_time = now_t
     if nR > 0:
@@ -274,7 +272,10 @@ while True:
         t = casque.duree_type(duree)
         print("Brassard : %s %s (%.2f s)" % (bouton, t, duree))
 
-        if t == "tres_long":                       # meme geste sur n'importe quel bouton
+        if t == "tres_long" and bouton != cfg.BOUTON_EXTINCTION:
+            t = "long"                             # un appui trop long ailleurs reste un appui long
+
+        if t == "tres_long":
             cfg.MODE = "OFF"
             cfg.poi = None
             minimap_cache = None

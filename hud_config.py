@@ -61,6 +61,7 @@ BRASSARD_TIMEOUT = 3.0             # s sans trame brassard avant de le declarer 
 BRASSARD_BOUTONS = ("t1", "t2", "t3", "coude", "enc", "rot")   # ordre des bits du masque btn
 APPUI_LONG = 0.5                   # s : au-dela, l'appui est long
 APPUI_TRES_LONG = 2.0              # s : au-dela, extinction totale
+BOUTON_EXTINCTION = "rot"          # seul bouton habilite : trop facile de se tromper
 # Position du rotatif -> mode. Progression du moins au plus charge.
 ROT_MODES = {1: "OFF", 2: "MINIMAL", 3: "NORMAL", 4: "NAV", 5: "SENTINELLE"}
 CAPTURES = os.path.expanduser("~/ipes/captures")   # images + telemetrie de la touche CAPTURE
