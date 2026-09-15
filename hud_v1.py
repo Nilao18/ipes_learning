@@ -310,7 +310,8 @@ while True:
                 casque.commande("visiere", visiere, attendre=False)
                 print("  Visiere niveau", visiere)
             else:
-                print("  Ecran Xreal ON/OFF (non implemente)")
+                casque.commande("visiere_ecran", attendre=False)
+                print("  Ecran Xreal ON/OFF")
 
         elif bouton == "rot":
             print("  Action principale du mode (a definir)")
