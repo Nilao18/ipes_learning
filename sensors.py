@@ -29,11 +29,21 @@ class BMEThread:
         self.humidity = 0.0
         self.pressure = 0.0
         self.gas = 0
+        self.t0 = time.time()      # debut de chauffe de la resistance du capteur de gaz
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
         print("BME688 OK")
+
+    @property
+    def gaz_pret(self):
+        """False pendant la chauffe : la mesure de gaz n'a aucun sens avant."""
+        return (time.time() - self.t0) >= cfg.BME_CHAUFFE
+
+    @property
+    def chauffe_restante(self):
+        return max(0, cfg.BME_CHAUFFE - (time.time() - self.t0))
 
     def update(self):
         while self.running:

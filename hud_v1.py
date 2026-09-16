@@ -232,10 +232,11 @@ while True:
 
     # Zone H - Donnees environnement
     if cfg.actif("environnement"):
-        hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+        hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure,
+                               bme.chauffe_restante)
 
     # Zone I - Alertes critiques (tous modes)
-    if 0 < bme.gas < cfg.SEUIL_RES_GAS:
+    if bme.gaz_pret and 0 < bme.gas < cfg.SEUIL_RES_GAS:
         hud = draw.draw_zone_i(hud, "!!! ALERTE GAZ !!!")
     if bme.temperature > cfg.SEUIL_TEMP_EXT:
         hud = draw.draw_zone_i(hud, f"!!! TEMP EXT {bme.temperature:.1f}C !!!", (0, 165, 255))
@@ -295,6 +296,7 @@ while True:
             cfg.appliquer_mode("OFF")
             cfg.poi = None
             minimap_cache = None
+            rot_precedent = None
             print("EXTINCTION TOTALE")
             continue
 

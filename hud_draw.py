@@ -274,14 +274,18 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, rada
         if gps is not None and not gps.connecte:
             lignes.append(("GPS HS", 0.6, (0, 165, 255), 30))
         elif gps is not None:
+            # Deux lignes courtes : la zone B dessine ensuite un fond noir a partir
+            # de x=293, qui tronquait l'ancien libelle "GPS HDOP x.x"
             if gps.fix:
                 gps_color = (0, 165, 255) if gps.hdop > 5 else color_dim
-                gps_txt = f"GPS HDOP {gps.hdop:.1f}"
+                l1 = f"GPS {gps.satellites} SAT"
+                l2 = f"HDOP {gps.hdop:.1f}"
             else:
                 gps_color = (0, 165, 255)
-                gps_txt = "GPS NO FIX"
-            lignes += [(gps_txt, 0.6, gps_color, 30),
-                       (f"{gps.satellites} SAT", 0.6, gps_color, 25)]
+                l1 = "GPS NO FIX"
+                l2 = f"{gps.satellites} SAT"
+            lignes += [(l1, 0.6, gps_color, 30),
+                       (l2, 0.6, gps_color, 25)]
     lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
     if not cfg.actif("radar"):
         lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
@@ -519,7 +523,16 @@ def draw_zone_g(frame, text):
 
 
 # --------------------------------------------------------------------------------Affichage de la Zone H
-def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
+def _valeur(frame, txt, x, y, couleur, largeur_max):
+    """Ecrit une valeur en reduisant la police jusqu'a tenir dans le cadre."""
+    for echelle in (0.8, 0.7, 0.6, 0.5, 0.45):
+        (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, echelle, 2)
+        if tw <= largeur_max:
+            break
+    cv2.putText(frame, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, echelle, couleur, 2)
+
+
+def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0, chauffe=0):
     h, w = frame.shape[:2]
     x = w - 200
     y = h - 200
@@ -536,17 +549,17 @@ def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
     # Temperature
     cv2.putText(frame, "TEMP :", (x+8, y+60),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{temperature:.1f}C", (x+65, y+60),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    _valeur(frame, f"{temperature:.1f}C", x+65, y+60, color, w - 9 - (x+65))
 
     # Humidite
     cv2.putText(frame, "HUM :", (x+8, y+100),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{humidity:.0f}%", (x+65, y+100),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    _valeur(frame, f"{humidity:.0f}%", x+65, y+100, color, w - 9 - (x+65))
 
-    # Gaz VOC : indicateur qualitatif
-    if gas > 50000:
+    # Gaz VOC : indicateur qualitatif, precede du decompte de chauffe
+    if chauffe > 0:
+        gaz_label, gaz_color = "CHAUFFE %ds" % int(chauffe), (0, 165, 255)
+    elif gas > 50000:
         gaz_label, gaz_color = "AIR OK", (0, 255, 0)
     elif gas > 20000:
         gaz_label, gaz_color = "MOYEN", (0, 200, 255)
@@ -555,8 +568,7 @@ def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
 
     cv2.putText(frame, "GAZ :", (x+8, y+140),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, gaz_label, (x+65, y+140),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, gaz_color, 2)
+    _valeur(frame, gaz_label, x+65, y+140, gaz_color, w - 9 - (x+65))
 
     if cfg.SHOW_GAS_RES:
         cv2.putText(frame, f"Gas res :{gas//1000}k ohm", (x+8, y+160),
@@ -565,8 +577,7 @@ def draw_zone_h(frame, temperature, humidity, gas, pressure=0.0):
     # Pression
     cv2.putText(frame, "PRES :", (x+8, y+180),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 0), 2)
-    cv2.putText(frame, f"{pressure:.1f}hPa", (x+65, y+180),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+    _valeur(frame, f"{pressure:.0f}hPa", x+65, y+180, color, w - 9 - (x+65))
     return frame
 
 

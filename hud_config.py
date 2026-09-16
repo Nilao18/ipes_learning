@@ -61,6 +61,12 @@ PRESETS = {
     "NORMAL":     _TOUT,
     "NAV":        _TOUT,                                 # minimap plus grande, voir MINIMAP_SIZE
     "SENTINELLE": ("cadran", "radar", "vignettes", "bandes"),
+    # Presets personnels, a redefinir librement. CUSTOM1 montre l'interet des couches :
+    # la navigation complete AVEC le cadran de surveillance, impossible avant.
+    "CUSTOM1":    _TOUT + ("cadran",),
+    "CUSTOM2":    _TOUT,
+    "CUSTOM3":    ("cadran", "radar", "vignettes", "bandes", "minimap", "boussole"),
+    "REGLAGES":   ("systeme_detail",),
 }
 couches = set(PRESETS["NORMAL"])                         # etat courant, modifie a l'execution
 
@@ -102,14 +108,21 @@ CASQUE_ACK = 0.5                   # s d'attente d'un accuse de commande
 BRASSARD_TIMEOUT = 3.0             # s sans trame brassard avant de le declarer absent
 BRASSARD_BOUTONS = ("t1", "t2", "t3", "coude", "enc", "rot")   # ordre des bits du masque btn
 APPUI_LONG = 0.5                   # s : au-dela, l'appui est long
-APPUI_TRES_LONG = 2.0              # s : au-dela, extinction totale
+APPUI_TRES_LONG = 4.0              # s : au-dela, extinction totale
 BOUTON_EXTINCTION = "rot"          # seul bouton habilite : trop facile de se tromper
-# Position du rotatif -> mode. Progression du moins au plus charge.
-ROT_MODES = {1: "OFF", 2: "MINIMAL", 3: "NORMAL", 4: "NAV", 5: "SENTINELLE"}
+# Position du rotatif -> mode. La position 5 est le cran HAUT du selecteur ;
+# on part de la et on progresse dans le sens horaire. OFF n'est plus une position :
+# il s'obtient par un appui de 4 s sur le poussoir central (voir APPUI_TRES_LONG).
+ROT_MODES = {5: "NORMAL",  6: "NAV",     7: "SENTINELLE", 8: "CUSTOM1",
+             1: "CUSTOM2", 2: "CUSTOM3", 3: "REGLAGES",   4: "MINIMAL"}
 CAPTURES = os.path.expanduser("~/ipes/captures")   # images + telemetrie de la touche CAPTURE
 VISIERE_NIVEAUX = 3                # niveaux d'assombrissement electrochromique
 # Etiquettes des trois touches contextuelles, affichees plus tard sur l'ecran brassard
-TOUCHES = {"NORMAL":     ("CAPTURE", "POI", "CAMERA"),
+TOUCHES = {"CUSTOM1":    ("CAPTURE", "POI", "CAMERA"),
+           "CUSTOM2":    ("CAPTURE", "POI", "CAMERA"),
+           "CUSTOM3":    ("CAPTURE", "POI", "CAMERA"),
+           "REGLAGES":   ("", "", ""),
+           "NORMAL":     ("CAPTURE", "POI", "CAMERA"),
            "NAV":        ("CAPTURE", "POI", "MARQUEUR"),
            "SENTINELLE": ("CAPTURE", "POI", "CAMERA"),
            "MINIMAL":    ("CAPTURE", "POI", ""),
@@ -167,5 +180,7 @@ DETECT_PERIOD = 0.25      # s entre deux inferences, alternees G/D (0.25 = 2 Hz 
 CAM_PERIOD = 0.5          # s entre deux captures OV9281 (0.5 = 2 images/s)
 OCR_EVERY = 60            # analyse OCR toutes les N images du HUD
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz
+BME_CHAUFFE = 180         # s : la resistance chauffante du BME688 doit se stabiliser
+                          #     avant toute mesure de gaz exploitable
 SEUIL_TEMP_EXT = 35       # degres C exterieurs
 SEUIL_TEMP_JETSON = 75    # degres C SoC
