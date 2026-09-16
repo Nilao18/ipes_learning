@@ -252,9 +252,11 @@ while True:
     hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar,
                                casque, cams_hs)
 
-    if cfg.actif("boussole") or cfg.actif("altimetre") or cfg.actif("horizon"):
+    if (cfg.actif("boussole") or cfg.actif("altimetre") or cfg.actif("horizon")
+            or cfg.actif("vitesse")):
         # Zone B - Boussole, altimetre, horizon
-        hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure)
+        hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure,
+                               gps.speed)
 
     # Zone C - Navigation GPS et minimap
     if cfg.actif("minimap"):
@@ -405,6 +407,9 @@ while True:
                     print("  POI verrouille yaw=%.1f pitch=%.1f" % (casque.yaw, casque.pitch))
             elif action == "CAMERA":
                 key = ord('n')                     # reutilise la bascule nocturne existante
+            elif action == "VEHICULE":
+                cfg.vehicule = (cfg.vehicule + 1) % len(cfg.VEHICULES)
+                print("  Vehicule :", cfg.VEHICULES[cfg.vehicule][0])
             elif action == "MARQUEUR":
                 marqueurs.append({"lat": gps.lat, "lon": gps.lon, "t": now_t})
                 print("  Marqueur %d pose (%.5f, %.5f)" % (len(marqueurs), gps.lat, gps.lon))

@@ -140,7 +140,32 @@ def deg2tile(lat, lon, zoom):
 
 
 # --------------------------------------------------------------------------------Affichage de la Zone B
-def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
+def _echelle_gauche(frame, x, ycentre, hauteur, valeur, pas, mini=None):
+    """Echelle verticale a gauche de la boussole, valeur courante au centre.
+    mini : valeur en dessous de laquelle une graduation n'a pas de sens (vitesse)."""
+    color_large, color_small, color_dim = (255, 255, 255), (0, 200, 0), (0, 150, 0)
+    cv2.line(frame, (x, ycentre - hauteur // 2), (x, ycentre + hauteur // 2), color_dim, 2)
+    for i in range(-5, 6):
+        y = ycentre + i * 17
+        if i == 0:
+            cv2.line(frame, (x - 12, y), (x, y), color_large, 3)
+            txt = "%d" % int(valeur)
+            tw = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
+            cv2.putText(frame, txt, (x - 20 - tw, y + 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+        elif i % 5 == 0:
+            cv2.line(frame, (x - 8, y), (x, y), color_large, 3)
+            v = valeur - i * pas
+            if mini is None or v >= mini:
+                txt = "%d" % int(v)
+                tw = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0][0]
+                cv2.putText(frame, txt, (x - 14 - tw, y + 5),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+        else:
+            cv2.line(frame, (x - 4, y), (x, y), color_small, 2)
+
+
+def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25, vitesse=0.0):
     h, w = frame.shape[:2]
     cx = w // 2
     compass_w = w // cfg.COMPASS_DIV.get(cfg.MODE, 3) + 50
@@ -152,12 +177,13 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
                       (cx - compass_w//2 - 5, 0),
                       (cx + compass_w//2 + 5, 95),
                       (0, 0, 0), -1)
-    if cfg.actif("altimetre"):
-        # Fond derriere curseur gauche (pieds)
+    if cfg.actif("altimetre") or cfg.actif("vitesse"):
+        # Fond derriere le bandeau gauche (vitesse ou pieds)
         cv2.rectangle(overlay,
                       (cx - compass_w//2 - 110, 0),
                       (cx - compass_w//2, 240),
                       (0, 0, 0), -1)
+    if cfg.actif("altimetre"):
         # Fond derriere curseur droit (metres)
         cv2.rectangle(overlay,
                       (cx + compass_w//2, 0),
@@ -185,34 +211,32 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     compass_left  = cx - compass_w//2 - 10
     compass_right = cx + compass_w//2 + 10
 
-    if cfg.actif("altimetre"):
+    grad_h = 175
+    grad_y_center = 120
+    grad_x_l = compass_left - 5
+
+    # Bandeau gauche : vitesse si la couche est active, sinon altitude en pieds.
+    # Convention aeronautique (vitesse a gauche, altitude a droite), et cela supprime
+    # la redondance de l'ancien affichage qui donnait l'altitude des deux cotes.
+    if cfg.actif("vitesse"):
+        nom, unite, k, pas = cfg.VEHICULES[cfg.vehicule]
+        # Type de vehicule au-dessus de l'unite : sans lui, "kt" ou "m/s" laisse
+        # un doute sur ce qui est mesure et sur la touche a presser pour en changer.
+        (tw, _), _ = cv2.getTextSize(nom, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 2)
+        cv2.putText(frame, nom, (grad_x_l - 14 - tw, 60),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 200, 255), 2)
+        (tw, _), _ = cv2.getTextSize(unite, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.putText(frame, unite, (grad_x_l - 14 - tw, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+        _echelle_gauche(frame, grad_x_l, grad_y_center, grad_h, vitesse * k, pas, mini=0)
+    elif cfg.actif("altimetre"):
         cv2.putText(frame, "FT", (compass_left - 60, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
+        _echelle_gauche(frame, grad_x_l, grad_y_center, grad_h, alt_ft, 50)
+
+    if cfg.actif("altimetre"):
         cv2.putText(frame, "M", (compass_right + 50, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-
-        # Graduation verticale gauche (pieds)
-        grad_h = 175
-        grad_x_l = compass_left - 5
-        grad_y_center = 120
-        cv2.line(frame, (grad_x_l, grad_y_center - grad_h//2),
-                 (grad_x_l, grad_y_center + grad_h//2), color_dim, 2)
-
-        for i in range(-5, 6):
-            y = grad_y_center + i * 17
-            if i == 0:
-                # Valeur reelle : trait epais + texte blanc
-                cv2.line(frame, (grad_x_l - 12, y), (grad_x_l, y), color_large, 3)
-                txt_ft = f"{int(alt_ft)}"
-                txt_ft_w = cv2.getTextSize(txt_ft, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0][0]
-                cv2.putText(frame, txt_ft, (grad_x_l - 20 - txt_ft_w, y + 8),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
-            elif i % 5 == 0:
-                cv2.line(frame, (grad_x_l - 8, y), (grad_x_l, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_ft - i*50)}", (grad_x_l - 50, y+5),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
-            else:
-                cv2.line(frame, (grad_x_l - 4, y), (grad_x_l, y), color_small, 2)
 
         # Graduation verticale droite (metres)
         grad_x_r = compass_right + 5

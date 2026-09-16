@@ -41,7 +41,8 @@ SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
 # par-dessus, par exemple la navigation ET le cadran sentinelle en meme temps.
 COUCHES = ("systeme_detail",   # date, CPU, temperature, GPS dans les donnees systeme
            "boussole",         # Zone B : bande de cap
-           "altimetre",        # Zone B : echelles d'altitude
+           "altimetre",        # Zone B : echelle d'altitude (a droite)
+           "vitesse",          # Zone B : echelle de vitesse (a gauche)
            "horizon",          # Zone B : horizon artificiel
            "minimap",          # Zone C : carte
            "reticule",         # Zone CENTRE
@@ -61,7 +62,7 @@ _TOUT = ("systeme_detail", "boussole", "altimetre", "minimap", "reticule", "poi"
 # bascule temporaire : il se superpose au mode courant et le restitue en sortant.
 PRESETS = {
     "MINIMAL":    ("vignettes", "bandes"),
-    "PILOTAGE":   ("boussole", "altimetre", "horizon", "reticule", "poi", "bandes"),
+    "PILOTAGE":   ("boussole", "altimetre", "vitesse", "horizon", "reticule", "poi", "bandes"),
     "NORMAL":     _TOUT,
     "NAV":        _TOUT,                                 # minimap plus grande, voir MINIMAP_SIZE
     "SENTINELLE": ("cadran", "radar", "vignettes", "bandes"),
@@ -88,6 +89,13 @@ def actif(nom):
     return nom in couches
 
 
+# Type de vehicule : (libelle, unite, facteur depuis les km/h du GPS, pas de graduation)
+# Le GPS donne des km/h ; le facteur convertit, le pas fixe l'echelle du bandeau.
+VEHICULES = (("TERRESTRE", "km/h", 1.0,      10),
+             ("AERIEN",    "kt",   0.539957,  5),
+             ("DRONE",     "m/s",  0.277778,  2))
+vehicule = 0                       # index dans VEHICULES, modifie a l'execution
+
 # Modes editables dans le menu de reglages, dans l'ordre d'affichage
 MODES_EDITABLES = ("NORMAL", "NAV", "SENTINELLE", "PILOTAGE",
                    "CUSTOM1", "CUSTOM2", "CUSTOM3", "MINIMAL")
@@ -96,11 +104,12 @@ MODES_EDITABLES = ("NORMAL", "NAV", "SENTINELLE", "PILOTAGE",
 # C'est ce qui fait qu'un mode reste lui-meme quoi que l'utilisateur ajoute par-dessus.
 COUCHES_VERROU = {"NAV":        ("minimap", "boussole"),
                   "SENTINELLE": ("cadran",),
-                  "PILOTAGE":   ("boussole", "altimetre", "horizon")}
+                  "PILOTAGE":   ("boussole", "altimetre", "vitesse", "horizon")}
 
 # Libelles du menu. Sans accents : les polices Hershey d'OpenCV ne les rendent pas.
 LIBELLES = {"systeme_detail": "Donnees systeme", "boussole": "Boussole",
-            "altimetre": "Altimetre",           "horizon": "Horizon",
+            "altimetre": "Altimetre",           "vitesse": "Vitesse",
+            "horizon": "Horizon",
             "minimap": "Minimap",               "reticule": "Reticule",
             "poi": "Point verrouille",          "radar": "Radar",
             "vignettes": "Vignettes",           "cadran": "Cadran sentinelle",
@@ -171,7 +180,7 @@ ROT_MODES = {5: "NORMAL",  6: "NAV",     7: "SENTINELLE", 8: "CUSTOM1",
 CAPTURES = os.path.expanduser("~/ipes/captures")   # images + telemetrie de la touche CAPTURE
 VISIERE_NIVEAUX = 3                # niveaux d'assombrissement electrochromique
 # Etiquettes des trois touches contextuelles, affichees plus tard sur l'ecran brassard
-TOUCHES = {"PILOTAGE":   ("CAPTURE", "POI", "CAMERA"),
+TOUCHES = {"PILOTAGE":   ("CAPTURE", "POI", "VEHICULE"),
            "CUSTOM1":    ("CAPTURE", "POI", "CAMERA"),
            "CUSTOM2":    ("CAPTURE", "POI", "CAMERA"),
            "CUSTOM3":    ("CAPTURE", "POI", "CAMERA"),
