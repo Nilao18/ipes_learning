@@ -43,6 +43,7 @@ COUCHES = ("systeme_detail",   # date, CPU, temperature, GPS dans les donnees sy
            "boussole",         # Zone B : bande de cap
            "altimetre",        # Zone B : echelle d'altitude (a droite)
            "vitesse",          # Zone B : echelle de vitesse (a gauche)
+           "vario",            # Zone B : variometre (a droite de l'altimetre)
            "horizon",          # Zone B : horizon artificiel
            "minimap",          # Zone C : carte
            "reticule",         # Zone CENTRE
@@ -62,7 +63,8 @@ _TOUT = ("systeme_detail", "boussole", "altimetre", "minimap", "reticule", "poi"
 # bascule temporaire : il se superpose au mode courant et le restitue en sortant.
 PRESETS = {
     "MINIMAL":    ("vignettes", "bandes"),
-    "PILOTAGE":   ("boussole", "altimetre", "vitesse", "horizon", "reticule", "poi", "bandes"),
+    "PILOTAGE":   ("boussole", "altimetre", "vitesse", "vario", "horizon",
+                   "reticule", "poi", "bandes"),
     "NORMAL":     _TOUT,
     "NAV":        _TOUT,                                 # minimap plus grande, voir MINIMAP_SIZE
     "SENTINELLE": ("cadran", "radar", "vignettes", "bandes"),
@@ -96,6 +98,15 @@ VEHICULES = (("TERRESTRE", "km/h", 1.0,      10),
              ("DRONE",     "m/s",  0.277778,  2))
 vehicule = 0                       # index dans VEHICULES, modifie a l'execution
 
+# Variometre, meme index que VEHICULES : (unite, facteur depuis les m/s, demi-plage, pas)
+# Au sol la vitesse verticale n'a d'interet qu'en montagne, d'ou une plage etroite.
+VARIO_ECHELLE = (("m/s",    1.0,     2.0,  1.0),
+                 ("ft/min", 196.85, 2000.0, 500.0),
+                 ("m/s",    1.0,     5.0,  1.0))
+
+ALT_UNITE = "M"                    # "M" ou "FT" : unite de l'echelle d'altitude,
+                                   # l'autre valeur reste affichee en petit dessous
+
 # Modes editables dans le menu de reglages, dans l'ordre d'affichage
 MODES_EDITABLES = ("NORMAL", "NAV", "SENTINELLE", "PILOTAGE",
                    "CUSTOM1", "CUSTOM2", "CUSTOM3", "MINIMAL")
@@ -104,11 +115,12 @@ MODES_EDITABLES = ("NORMAL", "NAV", "SENTINELLE", "PILOTAGE",
 # C'est ce qui fait qu'un mode reste lui-meme quoi que l'utilisateur ajoute par-dessus.
 COUCHES_VERROU = {"NAV":        ("minimap", "boussole"),
                   "SENTINELLE": ("cadran",),
-                  "PILOTAGE":   ("boussole", "altimetre", "vitesse", "horizon")}
+                  "PILOTAGE":   ("boussole", "altimetre", "vitesse", "vario", "horizon")}
 
 # Libelles du menu. Sans accents : les polices Hershey d'OpenCV ne les rendent pas.
 LIBELLES = {"systeme_detail": "Donnees systeme", "boussole": "Boussole",
             "altimetre": "Altimetre",           "vitesse": "Vitesse",
+            "vario": "Variometre",
             "horizon": "Horizon",
             "minimap": "Minimap",               "reticule": "Reticule",
             "poi": "Point verrouille",          "radar": "Radar",
@@ -243,6 +255,12 @@ DETECT_PERIOD = 0.25      # s entre deux inferences, alternees G/D (0.25 = 2 Hz 
 CAM_PERIOD = 0.5          # s entre deux captures OV9281 (0.5 = 2 images/s)
 OCR_EVERY = 60            # analyse OCR toutes les N images du HUD
 SEUIL_RES_GAS = 20000     # ohms - sous ce seuil : alerte gaz
+GAZ_PERIODE = 2.0         # s entre deux mesures de gaz : le chauffage du BME688 est
+                          #     coupe le reste du temps. Mesure : il multipliait par 27
+                          #     la derive de pression et faussait la temperature
+VARIO_FENETRE = 2.0       # s : duree de la regression. Mesure : bruit 0.0043 hPa (3.6 cm)
+                          #     a 4 Hz -> +/-0.02 m/s sur 2 s, pour 1 s de latence
+VARIO_STAB = 60           # s : la pression derive fortement les 40 premieres secondes
 BME_CHAUFFE = 180         # s : la resistance chauffante du BME688 doit se stabiliser
                           #     avant toute mesure de gaz exploitable
 SEUIL_TEMP_EXT = 35       # degres C exterieurs

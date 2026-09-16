@@ -3,6 +3,8 @@
 #-----------------------------------------------------------------------------------
 import json
 import math
+from collections import deque
+from collections import deque
 import struct
 import threading
 import time
@@ -23,18 +25,47 @@ class BMEThread:
     def __init__(self):
         print("Init BME688...")
         i2c = I2C(7)
-        self.bme = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77)
+        # refresh_rate eleve : la bibliotheque renvoie sinon une valeur en cache, ce qui
+        # donne l'illusion de milliers de mesures par seconde. Le capteur plafonne a 4 Hz.
+        self.bme = adafruit_bme680.Adafruit_BME680_I2C(i2c, address=0x77, refresh_rate=20)
         self.bme.sea_level_pressure = 1013.25
         self.temperature = 0.0
         self.humidity = 0.0
         self.pressure = 0.0
         self.gas = 0
         self.t0 = time.time()      # debut de chauffe de la resistance du capteur de gaz
+        self.vario = 0.0           # vitesse verticale en m/s, positif = montee
+        self._hist = deque()       # (instant, altitude) sur la fenetre de regression
+        self._derniere_p = None
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
         print("BME688 OK")
+
+    @property
+    def vario_pret(self):
+        """False tant que la pression n'est pas stabilisee : la derive se confondrait
+        avec une montee lente."""
+        return (time.time() - self.t0) >= cfg.VARIO_STAB
+
+    def _maj_vario(self, pression, maintenant):
+        """Pente de l'altitude sur la fenetre, par regression lineaire : elle utilise
+        tous les points et resiste bien mieux au bruit qu'une difference simple."""
+        alt = 44330 * (1 - (pression / 1013.25) ** 0.1903)
+        self._hist.append((maintenant, alt))
+        limite = maintenant - cfg.VARIO_FENETRE
+        while self._hist and self._hist[0][0] < limite:
+            self._hist.popleft()
+        n = len(self._hist)
+        if n < 4:
+            return
+        tm = sum(t for t, _ in self._hist) / n
+        am = sum(a for _, a in self._hist) / n
+        num = sum((t - tm) * (a - am) for t, a in self._hist)
+        den = sum((t - tm) ** 2 for t, _ in self._hist)
+        if den > 1e-9:
+            self.vario = num / den
 
     @property
     def gaz_pret(self):
@@ -45,16 +76,44 @@ class BMEThread:
     def chauffe_restante(self):
         return max(0, cfg.BME_CHAUFFE - (time.time() - self.t0))
 
+    def _chauffage(self, actif):
+        """run_gas du registre ctrl_gas_1. Non expose par la bibliotheque, mais le
+        laisser actif en permanence chauffe le capteur : pression et temperature faussees."""
+        try:
+            self.bme._write(0x71, [0x10 if actif else 0x00])
+            return True
+        except Exception:
+            return False
+
     def update(self):
+        self._chauffage(False)
+        chauffe = False
+        t_chauffe = 0.0
+        prochain_gaz = time.time() + cfg.GAZ_PERIODE
         while self.running:
             try:
-                self.temperature = self.bme.temperature
-                self.humidity = self.bme.humidity
-                self.pressure = self.bme.pressure
-                self.gas = self.bme.gas
+                now = time.time()
+                if not chauffe and now >= prochain_gaz:
+                    chauffe = self._chauffage(True)
+                    t_chauffe = now
+
+                p = self.bme.pressure
+                if p != self._derniere_p:          # nouvelle acquisition, pas le cache
+                    self._derniere_p = p
+                    self.pressure = p
+                    self._maj_vario(p, now)
+                    if not chauffe:                # sinon la mesure est biaisee
+                        self.temperature = self.bme.temperature
+                        self.humidity = self.bme.humidity
+
+                if chauffe and now - t_chauffe > 0.4:
+                    self.gas = self.bme.gas
+                    self._chauffage(False)
+                    chauffe = False
+                    prochain_gaz = now + cfg.GAZ_PERIODE
             except Exception as e:
                 print(f"BME erreur: {e}")
-            time.sleep(2)
+            time.sleep(0.05)
 
     def stop(self):
         self.running = False

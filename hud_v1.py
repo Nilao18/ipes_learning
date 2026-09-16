@@ -253,10 +253,10 @@ while True:
                                casque, cams_hs)
 
     if (cfg.actif("boussole") or cfg.actif("altimetre") or cfg.actif("horizon")
-            or cfg.actif("vitesse")):
+            or cfg.actif("vitesse") or cfg.actif("vario")):
         # Zone B - Boussole, altimetre, horizon
         hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure,
-                               gps.speed)
+                               gps.speed, bme.vario if bme.vario_pret else 0.0)
 
     # Zone C - Navigation GPS et minimap
     if cfg.actif("minimap"):

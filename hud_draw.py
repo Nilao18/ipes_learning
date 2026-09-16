@@ -165,7 +165,7 @@ def _echelle_gauche(frame, x, ycentre, hauteur, valeur, pas, mini=None):
             cv2.line(frame, (x - 4, y), (x, y), color_small, 2)
 
 
-def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25, vitesse=0.0):
+def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25, vitesse=0.0, vario=0.0):
     h, w = frame.shape[:2]
     cx = w // 2
     compass_w = w // cfg.COMPASS_DIV.get(cfg.MODE, 3) + 50
@@ -235,10 +235,15 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25, vitesse=0.0):
         _echelle_gauche(frame, grad_x_l, grad_y_center, grad_h, alt_ft, 50)
 
     if cfg.actif("altimetre"):
-        cv2.putText(frame, "M", (compass_right + 50, 100),
+        cv2.putText(frame, cfg.ALT_UNITE, (compass_right + 50, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
 
-        # Graduation verticale droite (metres)
+        # Une seule echelle d'altitude, dans l'unite choisie : l'ancien affichage
+        # donnait la meme information des deux cotes. L'autre unite reste lisible
+        # en petit sous la valeur courante.
+        metres = cfg.ALT_UNITE == "M"
+        principale, secondaire = (alt_m, alt_ft) if metres else (alt_ft, alt_m)
+        pas_alt = 15 if metres else 50
         grad_x_r = compass_right + 5
         cv2.line(frame, (grad_x_r, grad_y_center - grad_h//2),
                  (grad_x_r, grad_y_center + grad_h//2), color_dim, 2)
@@ -247,14 +252,45 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25, vitesse=0.0):
             y = grad_y_center + i * 17
             if i == 0:
                 cv2.line(frame, (grad_x_r + 12, y), (grad_x_r, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_ft)}", (grad_x_r + 20, y + 8),
+                cv2.putText(frame, "%d" % int(principale), (grad_x_r + 20, y + 8),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_large, 2)
+                cv2.putText(frame, "%d %s" % (int(secondaire), "ft" if metres else "m"),
+                            (grad_x_r + 20, y + 28),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, color_dim, 1)
             elif i % 5 == 0:
                 cv2.line(frame, (grad_x_r, y), (grad_x_r + 8, y), color_large, 3)
-                cv2.putText(frame, f"{int(alt_m - i*15)}", (grad_x_r + 20, y+5),
+                cv2.putText(frame, "%d" % int(principale - i * pas_alt), (grad_x_r + 20, y+5),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
             else:
                 cv2.line(frame, (grad_x_r, y), (grad_x_r + 4, y), color_small, 2)
+
+    # Variometre : echelle verticale a droite de l'altimetre, curseur mobile.
+    # La position du curseur se lit d'un coup d'oeil, sans dechiffrer un nombre.
+    # Pas de variometre au sol : la vitesse verticale n'y a pas d'interet, et une
+    # echelle inutile occupe de la place dans le champ.
+    if cfg.actif("vario") and cfg.VEHICULES[cfg.vehicule][0] != "TERRESTRE":
+        unite_v, kv, plage, pas_v = cfg.VARIO_ECHELLE[cfg.vehicule]
+        vx = compass_right + 115
+        v = max(-plage, min(plage, vario * kv))
+        cv2.line(frame, (vx, grad_y_center - grad_h//2),
+                 (vx, grad_y_center + grad_h//2), color_dim, 2)
+        n = int(plage / pas_v)
+        for i in range(-n, n + 1):
+            y = int(grad_y_center - i * (grad_h / 2) / n)
+            if i == 0:
+                cv2.line(frame, (vx - 10, y), (vx + 10, y), color_dim, 2)
+            else:
+                cv2.line(frame, (vx, y), (vx + 6, y), color_small, 1)
+        yv = int(grad_y_center - (v / plage) * (grad_h / 2))
+        couleur_v = (0, 255, 0) if v >= 0 else (0, 165, 255)
+        pts = np.array([(vx - 14, yv), (vx - 4, yv - 7), (vx - 4, yv + 7)], np.int32)
+        cv2.fillPoly(frame, [pts], couleur_v)
+        # Valeur et unite sur une seule ligne sous l'echelle : un libelle place en haut
+        # se faisait recouvrir par le curseur des que la vitesse verticale montait.
+        txt = (("%+.0f " if abs(kv) > 10 else "%+.1f ") % (vario * kv)) + unite_v
+        (tw, _), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.putText(frame, txt, (vx - tw // 2, grad_y_center + grad_h // 2 + 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, couleur_v, 2)
 
     # R/P/Y sous la boussole
     if cfg.DEBUG:
