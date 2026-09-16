@@ -175,6 +175,7 @@ COL_G = NET_G + ALERT_BAR_W + ALERT_BAR_GAP  # colonne de contenu gauche, apres 
 ALERT_BAS_MARGE = True    # bande arriere dans la marge basse (False : bord bas de la zone utile)
 RETRO_Y = 230             # haut de la vignette retroviseur, sous la boussole (px zone utile)
 CAM_FRAICHEUR = 3.0       # s : image plus ancienne = camera consideree indisponible
+CAM_RECO = 2.0            # s entre deux tentatives de reouverture d'une camera
 ALERT_STRIPE = 12         # largeur d'une rayure diagonale (px)
 DETECT_PERIOD = 0.25      # s entre deux inferences, alternees G/D (0.25 = 2 Hz par cote)
 CAM_PERIOD = 0.5          # s entre deux captures OV9281 (0.5 = 2 images/s)

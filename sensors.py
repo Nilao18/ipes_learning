@@ -401,35 +401,88 @@ class RadarThread(_SerieUSB):
 # Thread Camera - Capture UVC, MJPG obligatoire pour le 720p sur l'IMX462
 #-----------------------------------------------------------------------------------
 class CameraThread:
+    """Capture UVC avec reouverture automatique. Un connecteur qui lache en operation
+    ne doit pas condamner la camera jusqu'au prochain redemarrage du HUD."""
+
     def __init__(self, device, width=1280, height=720, period=0.0):
         """period > 0 : temporisation entre captures, limite la charge CPU et USB."""
-        self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
-        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.device = device
+        self.width, self.height = width, height
         self.period = period
         self.frame = None
         self.timestamp = None
+        self.cap = None
+        self.connecte = False
+        self._ouvrir()
         self.running = True
         self.thread = threading.Thread(target=self.update)
         self.thread.daemon = True
         self.thread.start()
 
+    def _ouvrir(self):
+        try:
+            cap = cv2.VideoCapture(self.device, cv2.CAP_V4L2)
+            if not cap.isOpened():
+                cap.release()
+                return False
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+            cap.set(cv2.CAP_PROP_FPS, 30)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self.cap = cap
+            self.connecte = True
+            return True
+        except Exception:
+            self.cap = None
+            self.connecte = False
+            return False
+
+    def _fermer(self):
+        self.connecte = False
+        self.frame = None          # surtout pas d'image figee a l'ecran
+        if self.cap is not None:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
+
     def update(self):
+        echecs = 0
         while self.running:
-            ret, frame = self.cap.read()
-            if ret:
+            if self.cap is None:
+                if self._ouvrir():
+                    print("Camera %s rouverte" % self.device.rsplit("usb-", 1)[-1][:8])
+                    echecs = 0
+                else:
+                    time.sleep(cfg.CAM_RECO)
+                continue
+            try:
+                ret, frame = self.cap.read()
+            except Exception:
+                ret, frame = False, None
+            if ret and frame is not None:
                 self.frame = frame
                 self.timestamp = time.time()
+                echecs = 0
+            else:
+                # Quelques lectures vides arrivent normalement ; au-dela, le peripherique
+                # a disparu et il faut le rouvrir, sinon read() echouera indefiniment.
+                echecs += 1
+                if echecs >= 10:
+                    print("Camera %s perdue, reconnexion" % self.device.rsplit("usb-", 1)[-1][:8])
+                    self._fermer()
+                    echecs = 0
+                    continue
+                time.sleep(0.1)
             if self.period > 0:
                 time.sleep(self.period)
 
     def stop(self):
         self.running = False
         self.thread.join(timeout=2)
-        self.cap.release()
+        self._fermer()
 
 
 #-----------------------------------------------------------------------------------
