@@ -186,8 +186,11 @@ while True:
         hud = np.zeros((HUD_H, HUD_W, 3), dtype=np.uint8)
 
     # Zone A - Donnees systeme (tous modes)
+    cams_hs = [nom for nom, cam in (("G", cam_left), ("D", cam_right), ("AR", cam_back))
+               if cam is not None and (cam.frame is None
+                                       or now_t - (cam.timestamp or 0) > cfg.CAM_FRAICHEUR)]
     hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar,
-                               casque)
+                               casque, cams_hs)
 
     if cfg.actif("boussole") or cfg.actif("altimetre") or cfg.actif("horizon"):
         # Zone B - Boussole, altimetre, horizon

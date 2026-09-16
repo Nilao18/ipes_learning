@@ -258,7 +258,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
 # --------------------------------------------------------------------------------Affichage de la Zone C
 def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, radar=None,
-                casque=None):
+                casque=None, cams_hs=()):
     """Donnees systeme (Zone A) : lignes empilees, une ligne masquee ne laisse pas de trou."""
     x, y = cfg.COL_G, 10
     color_dim = (0, 150, 0)
@@ -293,6 +293,10 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, rada
         lignes.append(("RADAR HS", 0.6, (0, 165, 255), 30))
     if casque is not None and not casque.imu_ok:
         lignes.append(("CASQUE HS", 0.6, (0, 165, 255), 30))
+    if cams_hs:
+        # Une camera debranchee est sautee en silence par la rotation de detection :
+        # sans cet indicateur, la panne ne se voit qu'au manque d'alertes d'un cote.
+        lignes.append(("CAM %s HS" % " ".join(cams_hs), 0.6, (0, 165, 255), 30))
     if cfg.DEBUG:
         lignes += [(f"FPS:{fps:.1f}", 0.6, color_dim, 30),
                    (f"LAT:{lat:.0f}ms", 0.6, color_dim, 20),
