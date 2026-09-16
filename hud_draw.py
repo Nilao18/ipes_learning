@@ -147,12 +147,12 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
 
     # Fond semi-transparent derriere boussole et altimetres
     overlay = frame.copy()
-    if cfg.SHOW_COMPASS:
+    if cfg.actif("boussole"):
         cv2.rectangle(overlay,
                       (cx - compass_w//2 - 5, 0),
                       (cx + compass_w//2 + 5, 95),
                       (0, 0, 0), -1)
-    if cfg.SHOW_ALTITUDE and cfg.MODE in cfg.MODES_COMPLETS:
+    if cfg.actif("altimetre"):
         # Fond derriere curseur gauche (pieds)
         cv2.rectangle(overlay,
                       (cx - compass_w//2 - 110, 0),
@@ -166,12 +166,12 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     cv2.addWeighted(overlay, 0.5, frame, 0.5, 0, frame)
 
     # Horizon artificiel
-    if cfg.SHOW_HORIZON:
+    if cfg.actif("horizon"):
         frame = draw_horizon(frame, roll, pitch)
 
     # Boussole
     COMPASS_OFFSET = -45
-    if cfg.SHOW_COMPASS:
+    if cfg.actif("boussole"):
         frame = draw_compass(frame, (-yaw + COMPASS_OFFSET) % 360)
 
     # Altitude barometrique
@@ -185,7 +185,7 @@ def draw_zone_b(frame, roll, pitch, yaw, pressure=1013.25):
     compass_left  = cx - compass_w//2 - 10
     compass_right = cx + compass_w//2 + 10
 
-    if cfg.SHOW_ALTITUDE and cfg.MODE in cfg.MODES_COMPLETS:
+    if cfg.actif("altimetre"):
         cv2.putText(frame, "FT", (compass_left - 60, 100),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, color_dim, 2)
         cv2.putText(frame, "M", (compass_right + 50, 100),
@@ -266,7 +266,7 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, rada
 
     # (texte, echelle, couleur, ecart avec la ligne precedente)
     lignes = [(now.strftime("%H:%M:%S"), 0.8, color_dim, 20)]
-    if cfg.MODE in cfg.MODES_COMPLETS:
+    if cfg.actif("systeme_detail"):
         temp_color = (0, 0, 255) if jetson_temp > 75 else color_dim
         lignes += [(now.strftime("%d/%m/%Y"), 0.6, color_dim, 25),
                    (f"CPU:{cpu:.0f}%", 0.6, color_dim, 25),
@@ -283,7 +283,7 @@ def draw_zone_c(frame, fps, side="", jetson_temp=0, cpu=0, lat=0, gps=None, rada
             lignes += [(gps_txt, 0.6, gps_color, 30),
                        (f"{gps.satellites} SAT", 0.6, gps_color, 25)]
     lignes.append((cfg.MODE, 0.7, (0, 200, 255), 30))
-    if not cfg.RADAR_ON:
+    if not cfg.actif("radar"):
         lignes.append(("RADAR OFF", 0.6, (100, 100, 100), 30))
     elif radar is not None and not radar.connecte:
         lignes.append(("RADAR HS", 0.6, (0, 165, 255), 30))
@@ -366,7 +366,7 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
     cv2.circle(frame, (cx, cy), R, (0, 90, 0), 1)
 
     # Couverture capteurs sur le contour (absence d'arc = angle mort)
-    arc(0, cfg.RADAR_FOV, vert if cfg.RADAR_ON else gris)
+    arc(0, cfg.RADAR_FOV, vert if cfg.actif("radar") else gris)
     arc(-90, cfg.CAM_HFOV, orange if alerte_g else vert)
     arc(90, cfg.CAM_HFOV, orange if alerte_d else vert)
     arc(180, cfg.CAM_HFOV, orange if alerte_a else vert)
@@ -376,7 +376,7 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
     cv2.fillPoly(frame, [pts], (255, 255, 255))
 
     # Cibles radar : x negatif = droite du radar (valide en test)
-    if cfg.RADAR_ON and radar_targets:
+    if cfg.actif("radar") and radar_targets:
         for t in radar_targets:
             dist = math.hypot(t["x"], t["y"])
             if dist <= 0.5:
@@ -471,7 +471,7 @@ def draw_vignettes(frame, det):
 
 
 def draw_zone_centre(frame):
-    if not cfg.SHOW_RETICULE or cfg.MODE not in cfg.MODES_COMPLETS:
+    if not cfg.actif("reticule"):
         return frame
     h, w = frame.shape[:2]
     cx, cy = w//2, h//2
@@ -488,7 +488,8 @@ def draw_zone_e(frame, radar_targets=None):
     cy = h // 2
 
     # Cible radar la plus proche, au-dela de 50 cm
-    if cfg.RADAR_ON and radar_targets and cfg.MODE != "SENTINELLE":
+    # Le cadran affiche deja la distance : pas de doublon en texte
+    if cfg.actif("radar") and radar_targets and not cfg.actif("cadran"):
         dists = [math.hypot(t["x"], t["y"]) for t in radar_targets]
         dists = [d for d in dists if d > 0.5]
         if dists:

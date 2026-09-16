@@ -12,7 +12,10 @@
 #   q  quitter          n  bascule vision nocturne     s  capture ecran
 #   1-5 mode direct     m  mode suivant                (5 = SENTINELLE)
 #   v  verrouiller POI  c  effacer POI
-#   r  radar ON/OFF     x  reticule ON/OFF             h  horizon ON/OFF
+#   i  etat des couches
+#   couches : y systeme  b boussole  a altimetre  h horizon  l minimap  x reticule
+#             j poi      r radar     p vignettes   k cadran   g ocr     e environnement
+#             w bandes
 # Brassard : rotatif = mode | t1-t3 = touches contextuelles | coude = visiere
 #            tres long (>2 s) sur n'importe quel bouton = extinction totale
 import json
@@ -65,6 +68,15 @@ fps = 0
 rot_precedent = None       # derniere position du rotatif vue, pour n'agir qu'au changement
 visiere = 0                # niveau electrochromique suppose (le bouton ne se relit pas)
 marqueurs = []             # points poses en mode NAV
+
+
+def basculer(couche):
+    """Active ou desactive une couche, sans toucher au mode courant."""
+    if couche in cfg.couches:
+        cfg.couches.discard(couche)
+    else:
+        cfg.couches.add(couche)
+    print("Couche %s : %s" % (couche, "ON" if cfg.actif(couche) else "OFF"))
 
 
 def capturer(image, casque, gps, bme):
@@ -177,48 +189,50 @@ while True:
     hud = draw.draw_zone_c(hud, fps, "", jetson_temp, cpu_percent, lat_display, gps, radar,
                                casque)
 
-    if cfg.MODE != "OFF":
-        # Zone B - Boussole et altimetre
+    if cfg.actif("boussole") or cfg.actif("altimetre") or cfg.actif("horizon"):
+        # Zone B - Boussole, altimetre, horizon
         hud = draw.draw_zone_b(hud, casque.roll, casque.pitch, casque.yaw, bme.pressure)
 
-        # Zone C - Navigation GPS et minimap
-        if cfg.MODE in cfg.MINIMAP_SIZE:
-            ms = cfg.MINIMAP_SIZE[cfg.MODE]
-            if (minimap_cache is None or minimap_cache.shape[0] != ms
-                    or abs(gps.lat - minimap_last_lat) > 0.0001
-                    or abs(gps.lon - minimap_last_lon) > 0.0001):
-                minimap_cache = draw.get_minimap(gps.lat, gps.lon, zoom=14, size=ms)
-                minimap_last_lat = gps.lat
-                minimap_last_lon = gps.lon
-            hud[60:60+ms, HUD_W-ms:HUD_W] = minimap_cache
+    # Zone C - Navigation GPS et minimap
+    if cfg.actif("minimap"):
+        ms = cfg.MINIMAP_SIZE.get(cfg.MODE, 260)
+        if (minimap_cache is None or minimap_cache.shape[0] != ms
+                or abs(gps.lat - minimap_last_lat) > 0.0001
+                or abs(gps.lon - minimap_last_lon) > 0.0001):
+            minimap_cache = draw.get_minimap(gps.lat, gps.lon, zoom=14, size=ms)
+            minimap_last_lat = gps.lat
+            minimap_last_lon = gps.lon
+        hud[60:60+ms, HUD_W-ms:HUD_W] = minimap_cache
 
-        # Zone Centre - reticule et POI
-        hud = draw.draw_zone_centre(hud)
+    # Zone Centre - reticule et POI
+    hud = draw.draw_zone_centre(hud)
+    if cfg.actif("poi"):
         hud = draw.draw_poi(hud, casque.yaw, casque.pitch)
 
-        # Zone D/E - Distance radar et vignettes des personnes detectees
+    # Zone D/E - Distance radar et vignettes des personnes detectees
+    if cfg.actif("radar"):
         hud = draw.draw_zone_e(hud, radar.targets)
+    if cfg.actif("vignettes"):
         hud = draw.draw_vignettes(hud, detector)
 
-        # Mode SENTINELLE - cadran vue de dessus
-        if cfg.MODE == "SENTINELLE":
-            hud = draw.draw_sentinelle(hud, radar.targets,
-                                       now_t - alert_l_time < cfg.ALERT_DURATION,
-                                       now_t - alert_r_time < cfg.ALERT_DURATION,
-                                       detector,
-                                       now_t - alert_b_time < cfg.ALERT_DURATION)
+    # Cadran vue de dessus
+    if cfg.actif("cadran"):
+        hud = draw.draw_sentinelle(hud, radar.targets,
+                                   now_t - alert_l_time < cfg.ALERT_DURATION,
+                                   now_t - alert_r_time < cfg.ALERT_DURATION,
+                                   detector,
+                                   now_t - alert_b_time < cfg.ALERT_DURATION)
 
-        if cfg.MODE in cfg.MODES_COMPLETS:
-            # Zone G - OCR
-            if cfg.ACTIVATE_OCR and count % cfg.OCR_EVERY == 0:
-                if cam_left and cam_left.frame is not None:
-                    ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
-            ocr.poll()
-            if cfg.SHOW_OCR:
-                hud = draw.draw_zone_g(hud, ocr.text)
+    # Zone G - OCR
+    if cfg.actif("ocr"):
+        if count % cfg.OCR_EVERY == 0 and cam_left and cam_left.frame is not None:
+            ocr.submit(cv2.flip(cam_left.frame.copy(), -1))
+        ocr.poll()
+        hud = draw.draw_zone_g(hud, ocr.text)
 
-            # Zone H - Donnees environnement
-            hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
+    # Zone H - Donnees environnement
+    if cfg.actif("environnement"):
+        hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure)
 
     # Zone I - Alertes critiques (tous modes)
     if 0 < bme.gas < cfg.SEUIL_RES_GAS:
@@ -241,7 +255,7 @@ while True:
     ecran[oy:oy+HUD_H, ox:ox+HUD_W] = hud
 
     # Bandes d'alerte laterales dans les marges, symetriques autour du HUD
-    if cfg.MODE != "OFF":
+    if cfg.actif("bandes"):
         ecran = draw.draw_alert_bars(ecran, ox, oy, HUD_W, HUD_H,
                                      now_t - alert_l_time < cfg.ALERT_DURATION,
                                      now_t - alert_r_time < cfg.ALERT_DURATION,
@@ -262,6 +276,7 @@ while True:
         nouveau = cfg.ROT_MODES.get(rot)
         if nouveau and nouveau != cfg.MODE:
             cfg.MODE = nouveau
+            cfg.appliquer_mode(nouveau)
             minimap_cache = None
             print("Mode:", cfg.MODE, "(rotatif %d)" % rot)
         elif nouveau is None:
@@ -277,6 +292,7 @@ while True:
 
         if t == "tres_long":
             cfg.MODE = "OFF"
+            cfg.appliquer_mode("OFF")
             cfg.poi = None
             minimap_cache = None
             print("EXTINCTION TOTALE")
@@ -344,11 +360,13 @@ while True:
 
     elif key in (ord('1'), ord('2'), ord('3'), ord('4'), ord('5')):
         cfg.MODE = cfg.MODES[key - ord('1')]
+        cfg.appliquer_mode(cfg.MODE)
         minimap_cache = None
         print("Mode:", cfg.MODE)
 
     elif key == ord('m'):
         cfg.MODE = cfg.MODES[(cfg.MODES.index(cfg.MODE) + 1) % len(cfg.MODES)]
+        cfg.appliquer_mode(cfg.MODE)
         minimap_cache = None
         print("Mode:", cfg.MODE)
 
@@ -363,17 +381,14 @@ while True:
         cfg.poi = None
         print("POI efface")
 
-    elif key == ord('r'):
-        cfg.RADAR_ON = not cfg.RADAR_ON
-        print("Radar", "ON" if cfg.RADAR_ON else "OFF")
+    elif 32 <= key < 127 and chr(key) in cfg.TOUCHES_COUCHES:
+        basculer(cfg.TOUCHES_COUCHES[chr(key)])
 
-    elif key == ord('x'):
-        cfg.SHOW_RETICULE = not cfg.SHOW_RETICULE
-        print("Reticule", "ON" if cfg.SHOW_RETICULE else "OFF")
-
-    elif key == ord('h'):
-        cfg.SHOW_HORIZON = not cfg.SHOW_HORIZON
-        print("Horizon", "ON" if cfg.SHOW_HORIZON else "OFF")
+    elif key == ord('i'):
+        print("Mode %s | actives   : %s"
+              % (cfg.MODE, " ".join(sorted(cfg.couches)) or "(aucune)"))
+        print("            inactives : %s"
+              % (" ".join(c for c in cfg.COUCHES if c not in cfg.couches) or "(aucune)"))
 
     elif key == ord('s'):
         cv2.imwrite(f'/tmp/ipes_capture_{int(time.time())}.png', ecran)

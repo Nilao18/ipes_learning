@@ -33,13 +33,55 @@
 import os
 #----------------------------------------------------------------------------- Affichage elements
 DEBUG = False        # True pour afficher FPS/LAT (Zone C) + PITCH/YAW/ROLL (Zone B)
-SHOW_RETICULE = True # reticule central (Zone CENTRE) - touche X, modifie a l'execution
-SHOW_HORIZON = False # horizon artificiel (Zone CENTRE) - touche H, modifie a l'execution
-SHOW_COMPASS = True  # True pour afficher la boussole (Zone B)
-SHOW_ALTITUDE = True # True pour afficher l'altitude (Zone B)
 SHOW_GAS_RES = False # True pour afficher la resistance de la mesure de gaz
-ACTIVATE_OCR = True  # True pour activer le traitement OCR (Zone G)
-SHOW_OCR = True      # True pour afficher le traitement OCR (Zone G)
+
+#----------------------------------------------------------------------------- Couches
+# Chaque element du HUD est une couche activable independamment. Un "mode" n'est
+# qu'un jeu de couches nomme (voir PRESETS) : rien n'empeche d'en activer d'autres
+# par-dessus, par exemple la navigation ET le cadran sentinelle en meme temps.
+COUCHES = ("systeme_detail",   # date, CPU, temperature, GPS dans les donnees systeme
+           "boussole",         # Zone B : bande de cap
+           "altimetre",        # Zone B : echelles d'altitude
+           "horizon",          # Zone B : horizon artificiel
+           "minimap",          # Zone C : carte
+           "reticule",         # Zone CENTRE
+           "poi",              # Zone CENTRE : point verrouille
+           "radar",            # distance radar + arc du cadran
+           "vignettes",        # personnes detectees + retroviseur
+           "cadran",           # vue de dessus du mode sentinelle
+           "ocr",              # Zone G : lecture de texte
+           "environnement",    # Zone H : temperature, humidite, gaz
+           "bandes")           # bandes d'alerte laterales et basse
+
+_TOUT = ("systeme_detail", "boussole", "altimetre", "minimap", "reticule", "poi",
+         "radar", "vignettes", "ocr", "environnement", "bandes")
+PRESETS = {
+    "OFF":        (),                                    # seules les alertes critiques restent
+    "MINIMAL":    ("vignettes", "bandes"),
+    "NORMAL":     _TOUT,
+    "NAV":        _TOUT,                                 # minimap plus grande, voir MINIMAP_SIZE
+    "SENTINELLE": ("cadran", "radar", "vignettes", "bandes"),
+}
+couches = set(PRESETS["NORMAL"])                         # etat courant, modifie a l'execution
+
+# Touche clavier -> couche basculee. Les couches restent independantes du mode :
+# activer le cadran en NAV ne quitte pas le mode NAV.
+TOUCHES_COUCHES = {"y": "systeme_detail", "b": "boussole", "a": "altimetre",
+                   "h": "horizon",        "l": "minimap",  "x": "reticule",
+                   "j": "poi",            "r": "radar",    "p": "vignettes",
+                   "k": "cadran",         "g": "ocr",      "e": "environnement",
+                   "w": "bandes"}
+
+
+def actif(nom):
+    """True si la couche est affichee. Seul point d'entree : ne jamais tester cfg.MODE."""
+    return nom in couches
+
+
+def appliquer_mode(mode):
+    """Charge le preset d'un mode. Les couches restent modifiables ensuite."""
+    global couches
+    couches = set(PRESETS.get(mode, ()))
 
 #----------------------------------------------------------------------------- Chemins
 TILES_DIR = "/home/quentin/ipes/maps/tours"  # Repertoire des tuiles minimap
@@ -88,9 +130,8 @@ NET_G = 110      # debut de la zone nette a gauche, en px depuis le bord gauche 
 
 #----------------------------------------------------------------------------- Modes HUD
 MODES = ["NORMAL", "NAV", "MINIMAL", "OFF", "SENTINELLE"]
-MODES_COMPLETS = ("NORMAL", "NAV")               # modes avec toutes les donnees (les autres = base minimale)
 MODE = "NORMAL"                                  # modifie a l'execution
-MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}       # taille minimap par mode
+MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}       # taille minimap par mode (defaut 260)
 COMPASS_DIV = {"NORMAL": 2, "NAV": 3}            # diviseur largeur boussole par mode
 
 #----------------------------------------------------------------------------- Verrouillage POI
@@ -103,7 +144,6 @@ poi = None                         # {"yaw":, "pitch":, "t":} ou None
 
 #----------------------------------------------------------------------------- Radar
 RADAR_FOV = 120.0                  # ouverture azimutale LD2450 (degres)
-RADAR_ON = True                    # affichage radar (touche R, modifie a l'execution)
 
 #----------------------------------------------------------------------------- Mode SENTINELLE
 SENTINELLE_R = 110                 # rayon du cadran (px)
