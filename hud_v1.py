@@ -45,6 +45,7 @@ cam_back = (CameraThread(cfg.CAM_BACK, period=cfg.CAM_PERIOD)   # voir ACTIVE_CA
 time.sleep(1)
 cam_night = None
 
+cfg.charger_presets()
 casque = CasqueThread()
 time.sleep(0.5)
 bme = BMEThread()
@@ -67,7 +68,66 @@ count = 0
 fps = 0
 rot_precedent = None       # derniere position du rotatif vue, pour n'agir qu'au changement
 visiere = 0                # niveau electrochromique suppose (le bouton ne se relit pas)
+mode_avant_minimal = None  # mode a restituer en sortant de la bascule MINIMAL
+enc_precedent = None       # dernier compteur d'encodeur vu, pour en deduire un delta
 marqueurs = []             # points poses en mode NAV
+
+
+# Etat du menu de reglages (mode REGLAGES du selecteur)
+menu_niveau = 0            # 0 = choix du mode, 1 = couches du mode choisi
+menu_index = 0
+menu_mode = None
+menu_edit = set()          # couches en cours d'edition, ecrites seulement au VALIDER
+
+
+def menu_items():
+    """Liste des entrees du niveau courant : (libelle, cle)."""
+    if menu_niveau == 0:
+        return [(m, m) for m in cfg.MODES_EDITABLES]
+    return ([(cfg.LIBELLES.get(c, c), c) for c in cfg.COUCHES]
+            + [("VALIDER", "_ok"), ("RETOUR", "_retour")])
+
+
+def menu_valider():
+    """Poussoir de l'encodeur : entrer dans un mode, cocher une couche, valider, revenir."""
+    global menu_niveau, menu_index, menu_mode, menu_edit
+    items = menu_items()
+    if not items:
+        return
+    cle = items[menu_index][1]
+
+    if menu_niveau == 0:
+        menu_mode = cle
+        menu_edit = set(cfg.PRESETS.get(cle, ()))
+        menu_niveau, menu_index = 1, 0
+        print("Reglages : edition de", cle)
+        return
+
+    if cle == "_retour":                       # on jette les modifications
+        menu_niveau, menu_index, menu_mode = 0, 0, None
+        return
+    if cle == "_ok":
+        verrous = cfg.COUCHES_VERROU.get(menu_mode, ())
+        cfg.PRESETS[menu_mode] = tuple(sorted(menu_edit | set(verrous)))
+        ok = cfg.sauver_presets()
+        print("Reglages : %s enregistre (%d couches)%s"
+              % (menu_mode, len(cfg.PRESETS[menu_mode]), "" if ok else " - NON SAUVEGARDE"))
+        menu_niveau, menu_index, menu_mode = 0, 0, None
+        return
+    if cle in cfg.COUCHES_VERROU.get(menu_mode, ()):
+        print("Reglages : %s est imposee par le mode %s" % (cle, menu_mode))
+        return
+    menu_edit.symmetric_difference_update({cle})
+
+
+def quitter_minimal():
+    """Restitue le mode d'avant la bascule MINIMAL, ou NORMAL si on ne sait plus."""
+    global mode_avant_minimal
+    retour = mode_avant_minimal or "NORMAL"
+    mode_avant_minimal = None
+    cfg.MODE = retour
+    cfg.appliquer_mode(retour)
+    print("Sortie MINIMAL, retour", retour)
 
 
 def basculer(couche):
@@ -238,6 +298,11 @@ while True:
         hud = draw.draw_zone_h(hud, bme.temperature, bme.humidity, bme.gas, bme.pressure,
                                bme.chauffe_restante)
 
+    # Menu de reglages : par-dessus tout, il doit rester lisible
+    if cfg.MODE == "REGLAGES":
+        hud = draw.draw_menu(hud, menu_niveau, menu_index, menu_mode, menu_edit,
+                             cfg.COUCHES_VERROU.get(menu_mode, ()))
+
     # Zone I - Alertes critiques (tous modes)
     if bme.gaz_pret and 0 < bme.gas < cfg.SEUIL_RES_GAS:
         hud = draw.draw_zone_i(hud, "!!! ALERTE GAZ !!!")
@@ -281,26 +346,45 @@ while True:
         if nouveau and nouveau != cfg.MODE:
             cfg.MODE = nouveau
             cfg.appliquer_mode(nouveau)
+            mode_avant_minimal = None
             minimap_cache = None
             print("Mode:", cfg.MODE, "(rotatif %d)" % rot)
         elif nouveau is None:
             print("Rotatif position %d : non attribuee" % rot)
+
+    # Encodeur : compteur absolu du brassard -> deplacement dans le menu
+    enc = casque.brassard.get("enc")
+    if enc is not None:
+        if enc_precedent is not None and enc != enc_precedent and cfg.MODE == "REGLAGES":
+            n = len(menu_items())
+            if n:
+                menu_index = (menu_index + (enc - enc_precedent)) % n
+        enc_precedent = enc
 
     # Boutons du brassard : l'evenement naît au relachement, avec sa duree
     for bouton, duree in casque.evenements():
         t = casque.duree_type(duree)
         print("Brassard : %s %s (%.2f s)" % (bouton, t, duree))
 
-        if t == "tres_long" and bouton != cfg.BOUTON_EXTINCTION:
+        if t == "tres_long" and bouton != cfg.BOUTON_MINIMAL:
             t = "long"                             # un appui trop long ailleurs reste un appui long
 
+        # MINIMAL est une bascule temporaire, pas une position du selecteur :
+        # on memorise le mode en cours pour le restituer en sortant.
         if t == "tres_long":
-            cfg.MODE = "OFF"
-            cfg.appliquer_mode("OFF")
-            cfg.poi = None
-            minimap_cache = None
-            rot_precedent = None
-            print("EXTINCTION TOTALE")
+            if cfg.MODE == "MINIMAL":
+                quitter_minimal()
+            else:
+                mode_avant_minimal = cfg.MODE
+                cfg.MODE = "MINIMAL"
+                cfg.appliquer_mode("MINIMAL")
+                minimap_cache = None
+                print("MINIMAL (retour :", mode_avant_minimal, ")")
+            continue
+
+        # En MINIMAL, l'action principale du mode est d'en sortir
+        if cfg.MODE == "MINIMAL" and bouton == "rot":
+            quitter_minimal()
             continue
 
         touches = cfg.TOUCHES.get(cfg.MODE, ("", "", ""))
@@ -338,7 +422,10 @@ while True:
             print("  Action principale du mode (a definir)")
 
         elif bouton == "enc":
-            print("  Validation (a definir)")
+            if cfg.MODE == "REGLAGES":
+                menu_valider()
+            else:
+                print("  Validation (a definir)")
 
     if key == ord('q'):
         break

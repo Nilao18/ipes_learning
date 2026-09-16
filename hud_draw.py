@@ -417,6 +417,53 @@ def draw_sentinelle(frame, radar_targets=None, alerte_g=False, alerte_d=False, d
     return frame
 
 
+def draw_menu(frame, niveau, index, mode_edite, couches_edit, verrous):
+    """Menu de reglages au centre du champ. niveau 0 = choix du mode, 1 = ses couches."""
+    h, w = frame.shape[:2]
+    if niveau == 0:
+        titre = "REGLAGES - choisir un mode"
+        items = [(m, None) for m in cfg.MODES_EDITABLES]
+    else:
+        titre = "REGLAGES - %s" % mode_edite
+        items = [(cfg.LIBELLES.get(c, c), c) for c in cfg.COUCHES]
+        items += [("VALIDER", "_ok"), ("RETOUR", "_retour")]
+
+    pw, ligne_h = 520, 30
+    ph = 100 + len(items) * ligne_h
+    x, y = (w - pw) // 2, (h - ph) // 2
+    cv2.rectangle(frame, (x, y), (x + pw, y + ph), (10, 14, 18), -1)
+    cv2.rectangle(frame, (x, y), (x + pw, y + ph), (0, 200, 255), 2)
+    cv2.putText(frame, titre, (x + 20, y + 35),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 200, 255), 2)
+    cv2.line(frame, (x + 10, y + 50), (x + pw - 10, y + 50), (0, 90, 0), 1)
+
+    for i, (libelle, cle) in enumerate(items):
+        ly = y + 78 + i * ligne_h
+        verrou = cle in verrous
+        if verrou:
+            couleur = (110, 110, 110)          # grise : imposee par le mode
+        elif cle in ("_ok", "_retour"):
+            couleur = (0, 200, 255)
+        else:
+            couleur = (0, 255, 0) if cle in couches_edit else (0, 110, 0)
+
+        if i == index:                          # ligne selectionnee
+            cv2.rectangle(frame, (x + 8, ly - 20), (x + pw - 8, ly + 8), (0, 60, 90), -1)
+            cv2.putText(frame, ">", (x + 14, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        (0, 200, 255), 2)
+        if niveau == 1 and cle not in ("_ok", "_retour"):
+            coche = "[X]" if (cle in couches_edit or verrou) else "[ ]"
+            cv2.putText(frame, coche, (x + 40, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
+            cv2.putText(frame, libelle, (x + 100, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
+        else:
+            cv2.putText(frame, libelle, (x + 40, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.6, couleur, 2)
+
+    aide = "encodeur : deplacer   |   poussoir encodeur : valider"
+    cv2.putText(frame, aide, (x + 20, y + ph - 16),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 150, 0), 1)
+    return frame
+
+
 _bande_cache = {}
 
 

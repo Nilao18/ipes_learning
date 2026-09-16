@@ -55,9 +55,13 @@ COUCHES = ("systeme_detail",   # date, CPU, temperature, GPS dans les donnees sy
 
 _TOUT = ("systeme_detail", "boussole", "altimetre", "minimap", "reticule", "poi",
          "radar", "vignettes", "ocr", "environnement", "bandes")
+# Plus de mode OFF : il faisait doublon avec MINIMAL, et la vraie extinction est
+# celle de l'ecran des Xreal (appui long sur le poussoir coude), seule a supprimer
+# toute emission lumineuse. MINIMAL n'est plus une position du selecteur mais une
+# bascule temporaire : il se superpose au mode courant et le restitue en sortant.
 PRESETS = {
-    "OFF":        (),                                    # seules les alertes critiques restent
     "MINIMAL":    ("vignettes", "bandes"),
+    "PILOTAGE":   ("boussole", "altimetre", "horizon", "reticule", "poi", "bandes"),
     "NORMAL":     _TOUT,
     "NAV":        _TOUT,                                 # minimap plus grande, voir MINIMAP_SIZE
     "SENTINELLE": ("cadran", "radar", "vignettes", "bandes"),
@@ -84,6 +88,55 @@ def actif(nom):
     return nom in couches
 
 
+# Modes editables dans le menu de reglages, dans l'ordre d'affichage
+MODES_EDITABLES = ("NORMAL", "NAV", "SENTINELLE", "PILOTAGE",
+                   "CUSTOM1", "CUSTOM2", "CUSTOM3", "MINIMAL")
+
+# Couches imposees par un mode : toujours actives, non decochables (grisees au menu).
+# C'est ce qui fait qu'un mode reste lui-meme quoi que l'utilisateur ajoute par-dessus.
+COUCHES_VERROU = {"NAV":        ("minimap", "boussole"),
+                  "SENTINELLE": ("cadran",),
+                  "PILOTAGE":   ("boussole", "altimetre", "horizon")}
+
+# Libelles du menu. Sans accents : les polices Hershey d'OpenCV ne les rendent pas.
+LIBELLES = {"systeme_detail": "Donnees systeme", "boussole": "Boussole",
+            "altimetre": "Altimetre",           "horizon": "Horizon",
+            "minimap": "Minimap",               "reticule": "Reticule",
+            "poi": "Point verrouille",          "radar": "Radar",
+            "vignettes": "Vignettes",           "cadran": "Cadran sentinelle",
+            "ocr": "Lecture de texte",          "environnement": "Environnement",
+            "bandes": "Bandes d'alerte"}
+
+PRESETS_FICHIER = os.path.expanduser("~/ipes/presets.json")
+
+
+def charger_presets():
+    """Recharge les presets personnalises enregistres. Silencieux si absent."""
+    import json
+    try:
+        with open(PRESETS_FICHIER, encoding="utf-8") as f:
+            for mode, liste in json.load(f).items():
+                if mode in PRESETS:
+                    PRESETS[mode] = tuple(c for c in liste if c in COUCHES)
+        print("Presets charges depuis", PRESETS_FICHIER)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print("Presets illisibles (%s), valeurs d'usine conservees" % e)
+
+
+def sauver_presets():
+    import json
+    try:
+        os.makedirs(os.path.dirname(PRESETS_FICHIER), exist_ok=True)
+        with open(PRESETS_FICHIER, "w", encoding="utf-8") as f:
+            json.dump({m: sorted(PRESETS[m]) for m in MODES_EDITABLES}, f, indent=1)
+        return True
+    except Exception as e:
+        print("Ecriture des presets impossible :", e)
+        return False
+
+
 def appliquer_mode(mode):
     """Charge le preset d'un mode. Les couches restent modifiables ensuite."""
     global couches
@@ -108,25 +161,25 @@ CASQUE_ACK = 0.5                   # s d'attente d'un accuse de commande
 BRASSARD_TIMEOUT = 3.0             # s sans trame brassard avant de le declarer absent
 BRASSARD_BOUTONS = ("t1", "t2", "t3", "coude", "enc", "rot")   # ordre des bits du masque btn
 APPUI_LONG = 0.5                   # s : au-dela, l'appui est long
-APPUI_TRES_LONG = 4.0              # s : au-dela, extinction totale
-BOUTON_EXTINCTION = "rot"          # seul bouton habilite : trop facile de se tromper
+APPUI_TRES_LONG = 2.0              # s : au-dela, bascule du mode MINIMAL
+BOUTON_MINIMAL = "rot"             # seul bouton habilite : trop facile de se tromper
 # Position du rotatif -> mode. La position 5 est le cran HAUT du selecteur ;
 # on part de la et on progresse dans le sens horaire. OFF n'est plus une position :
 # il s'obtient par un appui de 4 s sur le poussoir central (voir APPUI_TRES_LONG).
 ROT_MODES = {5: "NORMAL",  6: "NAV",     7: "SENTINELLE", 8: "CUSTOM1",
-             1: "CUSTOM2", 2: "CUSTOM3", 3: "REGLAGES",   4: "MINIMAL"}
+             1: "CUSTOM2", 2: "CUSTOM3", 3: "REGLAGES",   4: "PILOTAGE"}
 CAPTURES = os.path.expanduser("~/ipes/captures")   # images + telemetrie de la touche CAPTURE
 VISIERE_NIVEAUX = 3                # niveaux d'assombrissement electrochromique
 # Etiquettes des trois touches contextuelles, affichees plus tard sur l'ecran brassard
-TOUCHES = {"CUSTOM1":    ("CAPTURE", "POI", "CAMERA"),
+TOUCHES = {"PILOTAGE":   ("CAPTURE", "POI", "CAMERA"),
+           "CUSTOM1":    ("CAPTURE", "POI", "CAMERA"),
            "CUSTOM2":    ("CAPTURE", "POI", "CAMERA"),
            "CUSTOM3":    ("CAPTURE", "POI", "CAMERA"),
            "REGLAGES":   ("", "", ""),
            "NORMAL":     ("CAPTURE", "POI", "CAMERA"),
            "NAV":        ("CAPTURE", "POI", "MARQUEUR"),
            "SENTINELLE": ("CAPTURE", "POI", "CAMERA"),
-           "MINIMAL":    ("CAPTURE", "POI", ""),
-           "OFF":        ("", "", "")}
+           "MINIMAL":    ("CAPTURE", "POI", "")}
 
 #----------------------------------------------------------------------------- Vision nocturne
 NIGHT_VISION = False             # True = camera nocturne active (modifie a l'execution)
@@ -142,7 +195,7 @@ MARGE_Y = 0.05   # marges haute et basse (troncature)
 NET_G = 110      # debut de la zone nette a gauche, en px depuis le bord gauche de la zone utile
 
 #----------------------------------------------------------------------------- Modes HUD
-MODES = ["NORMAL", "NAV", "MINIMAL", "OFF", "SENTINELLE"]
+MODES = ["NORMAL", "NAV", "MINIMAL", "PILOTAGE", "SENTINELLE"]   # raccourcis clavier 1 a 5
 MODE = "NORMAL"                                  # modifie a l'execution
 MINIMAP_SIZE = {"NORMAL": 260, "NAV": 390}       # taille minimap par mode (defaut 260)
 COMPASS_DIV = {"NORMAL": 2, "NAV": 3}            # diviseur largeur boussole par mode
